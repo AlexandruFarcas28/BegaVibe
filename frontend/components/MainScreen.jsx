@@ -721,7 +721,7 @@ function MainScreen({ theme, onToggleTheme }) {
         </div>
       )}
 
-      {/* CSS */}
+            {/* CSS */}
       <style>{`
         * {
           margin: 0;
@@ -1006,17 +1006,35 @@ function MainScreen({ theme, onToggleTheme }) {
         }
 
         .event-card {
+          position: relative;
           background: rgba(15, 23, 42, 0.98);
           border-radius: 16px;
           overflow: hidden;
           border: 1px solid rgba(148, 163, 184, 0.6);
           box-shadow: 0 10px 24px rgba(15, 23, 42, 0.9);
+          transition:
+            transform 0.18s ease,
+            box-shadow 0.18s ease,
+            border-color 0.18s ease,
+            background 0.18s ease;
+        }
+
+        .event-card:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 18px 40px rgba(15, 23, 42, 0.95);
+          border-color: rgba(129, 140, 248, 0.9);
+          background: rgba(15, 23, 42, 1);
         }
 
         .app.light .event-card {
           background: #f9fafb;
           border-color: #e5e7eb;
           box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+        }
+
+        .app.light .event-card:hover {
+          box-shadow: 0 16px 32px rgba(15, 23, 42, 0.16);
+          border-color: #6366f1;
         }
 
         .event-image-wrapper {
@@ -1031,6 +1049,11 @@ function MainScreen({ theme, onToggleTheme }) {
           object-fit: cover;
           display: block;
           transform: scale(1.02);
+          transition: transform 0.25s ease;
+        }
+
+        .event-card:hover .event-image {
+          transform: scale(1.06);
         }
 
         .event-gradient-overlay {
@@ -1039,10 +1062,11 @@ function MainScreen({ theme, onToggleTheme }) {
           background: linear-gradient(180deg, rgba(15, 23, 42, 0) 0%, rgba(15, 23, 42, 0.9) 100%);
         }
 
+        /* BADGE-URI MUTATE MAI SUS */
         .event-category-badge {
           position: absolute;
           left: 10px;
-          bottom: 10px;
+          top: 10px;
           padding: 5px 10px;
           border-radius: 999px;
           color: #f9fafb;
@@ -1054,7 +1078,7 @@ function MainScreen({ theme, onToggleTheme }) {
 
         .age-badge-card {
           position: absolute;
-          left: 10px;
+          right: 10px;
           top: 10px;
           padding: 4px 9px;
           border-radius: 999px;
@@ -1133,12 +1157,23 @@ function MainScreen({ theme, onToggleTheme }) {
           cursor: pointer;
           white-space: nowrap;
           color: #e5e7eb;
+          transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+        }
+
+        .outline-btn:hover {
+          background: rgba(15, 23, 42, 0.85);
+          border-color: rgba(148, 163, 184, 0.95);
         }
 
         .app.light .outline-btn {
           background: #ffffff;
           border-color: #d1d5db;
           color: #111827;
+        }
+
+        .app.light .outline-btn:hover {
+          background: #f3f4f6;
+          border-color: #9ca3af;
         }
 
         .primary-mini-btn {
@@ -1151,6 +1186,12 @@ function MainScreen({ theme, onToggleTheme }) {
           background: linear-gradient(135deg, #6366f1, #a855f7);
           color: #f9fafb;
           white-space: nowrap;
+          transition: filter 0.15s ease, transform 0.12s ease;
+        }
+
+        .primary-mini-btn:hover {
+          filter: brightness(1.05);
+          transform: translateY(-1px);
         }
 
         /* HARTĂ */
@@ -1510,6 +1551,7 @@ function MainScreen({ theme, onToggleTheme }) {
           }
         }
       `}</style>
+
     </div>
   );
 }

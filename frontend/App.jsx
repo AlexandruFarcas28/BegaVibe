@@ -6,74 +6,82 @@ import UserEventsPage from './pages/UserEventsPage';
 import OrganizerDashboard from './pages/OrganizerDashboard';
 
 function App() {
-  const [role, setRole] = useState(null); // null | 'user' | 'organizer' | 'organizer-signup'
+  // null | 'user' | 'organizer' | 'organizer-signup'
+  const [role, setRole] = useState(null);
   const [theme, setTheme] = useState('dark');
   const [pendingOrganizerEmail, setPendingOrganizerEmail] = useState('');
 
+  // ================== HANDLERE GENERALE ==================
+  const handleToggleTheme = () => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
+  const handleLogoutToAuth = () => {
+    // Înapoi la ecranul de login / register
+    setRole(null);
+    setPendingOrganizerEmail('');
+  };
+
+  // ================== LOGIN / SIGNUP ==================
   const handleUserLogin = () => {
     setRole('user');
   };
 
   const handleOrganizerLogin = () => {
+    // Organizator deja existent → direct în dashboard
     setRole('organizer');
   };
 
   const handleOrganizerSignup = (email, password) => {
+    // Aici poți salva email-ul dacă vrei să-l afișezi pe pagina de organizer-signup
     setPendingOrganizerEmail(email);
     setRole('organizer-signup');
   };
 
-  const handleOrganizerSignupComplete = () => {
-    setRole('organizer');
-    setPendingOrganizerEmail('');
-  };
+  // ================== RENDER PE ROL ==================
 
-  const handleToggleTheme = () => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
-  };
-
-  // Dacă organizatorul e în proces de completare date
-  if (role === 'organizer-signup') {
-    return (
-      <OrganizerSignupPage
-        theme={theme}
-        onToggleTheme={handleToggleTheme}
-        onComplete={handleOrganizerSignupComplete}
-        email={pendingOrganizerEmail}
-      />
-    );
-  }
-
-  // Dacă nu ești logat încă → ecran auth
-  if (!role) {
-    return (
-      <AuthScreen
-        onAuthSuccess={handleUserLogin}
-        onOrganizerLogin={handleOrganizerLogin}
-        onOrganizerSignup={handleOrganizerSignup}
-        theme={theme}
-        onToggleTheme={handleToggleTheme}
-      />
-    );
-  }
-
-  // Dacă ești user normal → pagina cu evenimente
+  // Utilizator normal → pagina cu evenimente
   if (role === 'user') {
     return (
       <UserEventsPage
         theme={theme}
         onToggleTheme={handleToggleTheme}
-        onLogout={() => setRole(null)}
+        onLogout={handleLogoutToAuth} // butonul „Înapoi la login”
       />
     );
   }
 
-  // Dacă ești organizator → dashboard organizator
+  // Organizator în proces de completare (signup page)
+  if (role === 'organizer-signup') {
+    return (
+      <OrganizerSignupPage
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
+        onLogout={handleLogoutToAuth} // ⬅ asta trebuie ca să meargă „Înapoi”
+        email={pendingOrganizerEmail}
+      />
+    );
+  }
+
+  // Organizator logat complet → dashboard
+  if (role === 'organizer') {
+    return (
+      <OrganizerDashboard
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
+        onLogout={handleLogoutToAuth}
+      />
+    );
+  }
+
+  // Ecranul de autentificare (când role === null)
   return (
-    <OrganizerDashboard
+    <AuthScreen
       theme={theme}
       onToggleTheme={handleToggleTheme}
-      onLogout={() => setRole(null)}
+      onAuthSuccess={handleUserLogin}       // user normal
+      onOrganizerLogin={handleOrganizerLogin}   // login ca organizator
+      onOrganizerSignup={handleOrganizerSignup} // „Devino organizator”
     />
   );
 }

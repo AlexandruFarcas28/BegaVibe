@@ -1,10 +1,45 @@
 // src/pages/OrganizerDashboard.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const MOCK_ORG_EVENTS = [
-  { id: '1', title: 'Concert Rock în Timișoara', date: '2025-11-20', status: 'Publicat', location: 'Sala Capitol, Timișoara' },
-  { id: '2', title: 'Stand-up Night', date: '2025-12-05', status: 'În draft', location: 'Comedy Club TM' },
+  {
+    id: '1',
+    title: 'Concert Rock în Timișoara',
+    date: '2025-11-20',
+    status: 'Publicat',
+    location: 'Sala Capitol, Timișoara',
+    organizerName: 'Asociația Rock TM',
+    cui: '12345678',
+    price: '75',
+    mapLink: 'https://www.google.com/maps?q=Sala+Capitol+Timisoara',
+  },
+  {
+    id: '2',
+    title: 'Stand-up Night',
+    date: '2025-12-05',
+    status: 'În draft',
+    location: 'Comedy Club TM',
+    organizerName: 'Funny Events SRL',
+    cui: '87654321',
+    price: '50',
+    mapLink: '',
+  },
 ];
+
+const BANNED_WORDS = [
+  'injuratura',
+  'obscen',
+  'jignire',
+  'hate',
+];
+
+const isNumericOnly = (value) => /^[0-9]+$/.test(value.trim());
+const isValidPrice = (value) => /^([0-9]+)(\.[0-9]{1,2})?$/.test(value.trim());
+const isValidCui = (value) => /^[0-9]{6,10}$/.test(value.trim());
+const containsBannedWords = (value) => {
+  const lower = value.toLowerCase();
+  return BANNED_WORDS.some((w) => lower.includes(w));
+};
 
 function OrganizerDashboard({ theme, onToggleTheme, onLogout }) {
   const [events, setEvents] = useState(MOCK_ORG_EVENTS);
@@ -12,341 +47,1426 @@ function OrganizerDashboard({ theme, onToggleTheme, onLogout }) {
     title: '',
     date: '',
     location: '',
+    organizerName: '',
+    cui: '',
+    price: '',
+    mapLink: '',
   });
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [editingEvent, setEditingEvent] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const handleChange = (field, value) => {
-    setNewEvent((prev) => ({ ...prev, [field]: value }));
+  useEffect(() => {
+    // aici poți încărca evenimentele din backend
+  }, []);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setNewEvent((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleAddEvent = (e) => {
+  const validateTextFields = ({ title, location, organizerName }) => {
+    if (isNumericOnly(title) || isNumericOnly(location) || isNumericOnly(organizerName)) {
+      alert('Titlul, locația și numele organizatorului nu pot fi formate doar din cifre.');
+      return false;
+    }
+
+    if (
+      containsBannedWords(title) ||
+      containsBannedWords(location) ||
+      containsBannedWords(organizerName)
+    ) {
+      alert('Te rog folosește un limbaj adecvat (fără cuvinte obscure/obscene).');
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleCreateEvent = (e) => {
     e.preventDefault();
-    if (!newEvent.title.trim() || !newEvent.date.trim() || !newEvent.location.trim()) {
-      alert('Completează numele, data și locația.');
+
+    const {
+      title,
+      date,
+      location,
+      organizerName,
+      cui,
+      price,
+      mapLink,
+    } = newEvent;
+
+    if (
+      !title.trim() ||
+      !date.trim() ||
+      !location.trim() ||
+      !organizerName.trim() ||
+      !cui.trim() ||
+      !price.trim()
+    ) {
+      alert('Te rog completează toate câmpurile obligatorii (inclusiv nume organizator, CUI și preț).');
       return;
     }
+
+    if (!validateTextFields({ title, location, organizerName })) return;
+
+    if (!isValidCui(cui)) {
+      alert('CUI-ul trebuie să conțină doar cifre și să aibă între 6 și 10 caractere.');
+      return;
+    }
+
+    if (!isValidPrice(price)) {
+      alert('Prețul trebuie să fie un număr valid (ex: 50 sau 49.99).');
+      return;
+    }
+
     const created = {
-      id: String(Date.now()),
-      title: newEvent.title.trim(),
-      date: newEvent.date.trim(),
+      id: Date.now().toString(),
+      title: title.trim(),
+      date: date.trim(),
       status: 'În draft',
-      location: newEvent.location.trim(),
+      location: location.trim(),
+      organizerName: organizerName.trim(),
+      cui: cui.trim(),
+      price: price.trim(),
+      mapLink: mapLink.trim(),
     };
-    setEvents((prev) => [...prev, created]);
-    setNewEvent({ title: '', date: '', location: '' });
+
+    setEvents((prev) => [created, ...prev]);
+    setNewEvent({
+      title: '',
+      date: '',
+      location: '',
+      organizerName: '',
+      cui: '',
+      price: '',
+      mapLink: '',
+    });
     alert('Eveniment creat ca draft pentru organizator.');
   };
 
+  const handleDeleteEvent = (id) => {
+    setEvents((prev) => prev.filter((e) => e.id !== id));
+    setShowDeleteConfirm(null);
+    alert('Eveniment șters cu succes!');
+  };
+
+  const handleToggleStatus = (id) => {
+    setEvents((prev) =>
+      prev.map((ev) => {
+        if (ev.id !== id) return ev;
+        const newStatus = ev.status === 'Publicat' ? 'În draft' : 'Publicat';
+        return { ...ev, status: newStatus };
+      })
+    );
+  };
+
+  const handleEditEvent = (event) => {
+    setEditingEvent({
+      ...event,
+      organizerName: event.organizerName || '',
+      cui: event.cui || '',
+      price: event.price || '',
+      mapLink: event.mapLink || '',
+    });
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingEvent) return;
+
+    const {
+      title,
+      date,
+      location,
+      organizerName,
+      cui,
+      price,
+    } = editingEvent;
+
+    if (
+      !title.trim() ||
+      !date.trim() ||
+      !location.trim() ||
+      !organizerName.trim() ||
+      !cui.trim() ||
+      !price.trim()
+    ) {
+      alert('Te rog completează toate câmpurile obligatorii.');
+      return;
+    }
+
+    if (!validateTextFields({ title, location, organizerName })) return;
+
+    if (!isValidCui(cui)) {
+      alert('CUI-ul trebuie să conțină doar cifre și să aibă între 6 și 10 caractere.');
+      return;
+    }
+
+    if (!isValidPrice(price)) {
+      alert('Prețul trebuie să fie un număr valid (ex: 50 sau 49.99).');
+      return;
+    }
+
+    setEvents((prev) =>
+      prev.map((e) => (e.id === editingEvent.id ? editingEvent : e))
+    );
+    setEditingEvent(null);
+    alert('Eveniment actualizat cu succes!');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingEvent(null);
+  };
+
+  const filteredEvents = events.filter((ev) => {
+    if (statusFilter !== 'ALL' && ev.status !== statusFilter) return false;
+
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const haystack = [
+        ev.title,
+        ev.location,
+        ev.organizerName,
+        ev.cui,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      if (!haystack.includes(q)) return false;
+    }
+
+    return true;
+  });
+
+  const sortedEvents = [...filteredEvents].sort((a, b) => {
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return new Date(a.date) - new Date(b.date);
+  });
+
   return (
-    <div className={`organizer-app ${theme}`}>
-      <header className="org-header">
-        <div className="org-header-left">
-          <h1 className="org-title">BegaVibe · Organizator</h1>
-          <p className="org-subtitle">
-            Gestionează evenimentele tale în Timișoara: creează, editează, publică.
-          </p>
-        </div>
-        <div className="org-header-right">
-          <button className="org-theme-toggle" onClick={onToggleTheme}>
-            {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
-          </button>
-          <button className="org-logout" onClick={onLogout}>
-            ⬅ Delogare
-          </button>
-        </div>
-      </header>
-
-      <main className="org-layout">
-        <section className="org-panel org-panel-left">
-          <h2>Evenimentele mele</h2>
-          <p className="org-panel-subtitle">
-            Vezi rapid statusul evenimentelor create.
-          </p>
-          <div className="org-events-list">
-            {events.map((ev) => (
-              <div key={ev.id} className="org-event-card">
-                <div className="org-event-main">
-                  <h3>{ev.title}</h3>
-                  <p>📅 {ev.date}</p>
-                  {ev.location && <p>📍 {ev.location}</p>}
-                </div>
-                <span
-                  className={`org-status-badge ${
-                    ev.status === 'Publicat' ? 'published' : 'draft'
-                  }`}
-                >
-                  {ev.status}
-                </span>
+    <div className={`organizer-app ${theme === 'light' ? 'light' : ''}`}>
+      <div className="org-glass-container">
+        <header className="org-header">
+          <div className="org-header-left">
+            <div className="org-logo-area">
+              <div className="org-logo-circle">BV</div>
+              <div>
+                <h1>Organizer Dashboard</h1>
+                <p>Gestionează-ți evenimentele ușor și rapid</p>
               </div>
-            ))}
-            {events.length === 0 && (
-              <p className="org-empty">Nu ai încă niciun eveniment creat.</p>
-            )}
+            </div>
           </div>
-        </section>
 
-        <section className="org-panel org-panel-right">
-          <h2>Adaugă un nou eveniment</h2>
-          <p className="org-panel-subtitle">
-            Completează informațiile de bază, îl poți detalia mai târziu.
-          </p>
-
-          <form className="org-form" onSubmit={handleAddEvent}>
-            <div className="org-field">
-              <label>Titlu eveniment</label>
-              <input
-                type="text"
-                value={newEvent.title}
-                onChange={(e) => handleChange('title', e.target.value)}
-                placeholder="Ex: Festival de jazz pe malul Begăi"
-              />
-            </div>
-            <div className="org-field">
-              <label>Data</label>
-              <input
-                type="date"
-                value={newEvent.date}
-                onChange={(e) => handleChange('date', e.target.value)}
-              />
-            </div>
-            <div className="org-field">
-              <label>Locație</label>
-              <input
-                type="text"
-                value={newEvent.location}
-                onChange={(e) => handleChange('location', e.target.value)}
-                placeholder="Ex: Piața Libertății, Timișoara"
-              />
-            </div>
-
-            <button type="submit" className="org-submit">
-              Salvează ca draft
+          <div className="org-header-right">
+            <button
+              className="org-theme-toggle"
+              onClick={onToggleTheme}
+              aria-label="Schimbă tema"
+            >
+              {theme === 'dark' ? '🌙 Dark' : '☀️ Light'}
             </button>
-          </form>
-
-          <div className="org-hint">
-            💡 Mai târziu poți adăuga preț, categorie, imagine și reguli de acces (16+/18+).
+            <button className="org-logout-btn" onClick={onLogout}>
+              Logout
+            </button>
           </div>
-        </section>
-      </main>
+        </header>
 
-      <style>{`
+        <main className="org-main">
+          <section className="org-create-section">
+            <h2>Adaugă un nou eveniment</h2>
+            <p className="org-section-subtitle">
+              Completează detaliile evenimentului. Implicit, evenimentul va fi creat ca{' '}
+              <strong>În draft</strong>.
+            </p>
+            <form className="org-form" onSubmit={handleCreateEvent}>
+              <div className="org-form-row">
+                <div className="org-form-group">
+                  <label htmlFor="organizerName">
+                    Nume organizator <span className="org-required">*</span>
+                  </label>
+                  <input
+                    id="organizerName"
+                    name="organizerName"
+                    type="text"
+                    value={newEvent.organizerName}
+                    onChange={handleInputChange}
+                    placeholder="Ex: Firma Evenimente SRL"
+                  />
+                </div>
+                <div className="org-form-group">
+                  <label htmlFor="cui">
+                    CUI <span className="org-required">*</span>
+                  </label>
+                  <input
+                    id="cui"
+                    name="cui"
+                    type="text"
+                    value={newEvent.cui}
+                    onChange={handleInputChange}
+                    placeholder="Doar cifre, ex: 12345678"
+                  />
+                </div>
+              </div>
+
+              <div className="org-form-row">
+                <div className="org-form-group">
+                  <label htmlFor="title">
+                    Titlu eveniment <span className="org-required">*</span>
+                  </label>
+                  <input
+                    id="title"
+                    name="title"
+                    type="text"
+                    value={newEvent.title}
+                    onChange={handleInputChange}
+                    placeholder="Ex: Festival de Jazz"
+                  />
+                </div>
+                <div className="org-form-group">
+                  <label htmlFor="date">
+                    Dată <span className="org-required">*</span>
+                  </label>
+                  <input
+                    id="date"
+                    name="date"
+                    type="date"
+                    value={newEvent.date}
+                    onChange={handleInputChange}
+                  />
+                </div>
+              </div>
+
+              <div className="org-form-row">
+                <div className="org-form-group">
+                  <label htmlFor="location">
+                    Locație <span className="org-required">*</span>
+                  </label>
+                  <input
+                    id="location"
+                    name="location"
+                    type="text"
+                    value={newEvent.location}
+                    onChange={handleInputChange}
+                    placeholder="Ex: Piața Unirii, Timișoara"
+                  />
+                </div>
+                <div className="org-form-group">
+                  <label htmlFor="price">
+                    Preț bilet (RON) <span className="org-required">*</span>
+                  </label>
+                  <input
+                    id="price"
+                    name="price"
+                    type="text"
+                    value={newEvent.price}
+                    onChange={handleInputChange}
+                    placeholder="Ex: 50 sau 49.99"
+                  />
+                </div>
+              </div>
+
+              <div className="org-form-group">
+                <label htmlFor="mapLink">
+                  Link hartă (Google Maps)
+                  <span className="org-optional"> (opțional)</span>
+                </label>
+                <input
+                  id="mapLink"
+                  name="mapLink"
+                  type="text"
+                  value={newEvent.mapLink}
+                  onChange={handleInputChange}
+                  placeholder="Ex: https://www.google.com/maps/..."
+                />
+                <p className="org-helper-text">
+                  Poți deschide Google Maps, cauți locația și copiezi link-ul aici.
+                </p>
+              </div>
+
+              <div className="org-form-footer">
+                <div className="org-info">
+                  <span className="org-badge draft">În draft implicit</span>
+                  <span>Poți publica evenimentul ulterior din listă.</span>
+                </div>
+                <button type="submit" className="org-primary-btn">
+                  + Creează eveniment
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section className="org-events-section">
+            <div className="org-events-header">
+              <div>
+                <h2>Evenimentele tale</h2>
+                <p className="org-section-subtitle">
+                  Vezi, filtrează și gestionează evenimentele pe care le-ai creat.
+                </p>
+              </div>
+              <div className="org-filters">
+                <div className="org-search">
+                  <input
+                    type="text"
+                    placeholder="Caută după titlu, locație, organizator..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                <div className="org-status-filters">
+                  <button
+                    className={`org-filter-btn ${statusFilter === 'ALL' ? 'active' : ''}`}
+                    onClick={() => setStatusFilter('ALL')}
+                  >
+                    Toate
+                  </button>
+                  <button
+                    className={`org-filter-btn ${statusFilter === 'Publicat' ? 'active' : ''}`}
+                    onClick={() => setStatusFilter('Publicat')}
+                  >
+                    Publicate
+                  </button>
+                  <button
+                    className={`org-filter-btn ${statusFilter === 'În draft' ? 'active' : ''}`}
+                    onClick={() => setStatusFilter('În draft')}
+                  >
+                    Drafturi
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {sortedEvents.length === 0 ? (
+              <div className="org-empty-state">
+                <div className="org-empty-icon">🎫</div>
+                <h3>Nu ai niciun eveniment în această vizualizare</h3>
+                <p>
+                  Creează un eveniment nou sau modifică filtrele pentru a vedea alte rezultate.
+                </p>
+              </div>
+            ) : (
+              <div className="org-events-list">
+                {sortedEvents.map((ev) => (
+                  <div
+                    key={ev.id}
+                    className={`org-event-card ${
+                      ev.status === 'Publicat' ? 'published' : 'draft'
+                    }`}
+                  >
+                    <div className="org-event-main">
+                      <h3>{ev.title}</h3>
+                      <p>📅 {ev.date || 'Dată necompletată'}</p>
+                      {ev.location && <p>📍 {ev.location}</p>}
+                      {ev.organizerName && (
+                        <p>👤 Organizator: {ev.organizerName}</p>
+                      )}
+                      {ev.cui && <p>🧾 CUI: {ev.cui}</p>}
+                      {ev.price && (
+                        <p>💸 Preț: {ev.price} RON</p>
+                      )}
+                      {ev.mapLink && (
+                        <p>
+                          🗺️{' '}
+                          <a
+                            href={ev.mapLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="org-map-link"
+                          >
+                            Vezi pe hartă
+                          </a>
+                        </p>
+                      )}
+                    </div>
+                    <div className="org-event-actions">
+                      <span
+                        className={`org-status-badge ${
+                          ev.status === 'Publicat' ? 'published' : 'draft'
+                        }`}
+                      >
+                        {ev.status}
+                      </span>
+
+                      {/* Buton nou de toggling draft/publicat */}
+                      <button
+                        className={`org-toggle-status-btn ${
+                          ev.status === 'Publicat' ? 'to-draft' : 'to-published'
+                        }`}
+                        onClick={() => handleToggleStatus(ev.id)}
+                        title={
+                          ev.status === 'Publicat'
+                            ? 'Marchează evenimentul ca draft'
+                            : 'Publică evenimentul'
+                        }
+                      >
+                        <span className="org-toggle-pill">
+                          <span className="dot" />
+                          {ev.status === 'Publicat' ? 'Mută în draft' : 'Publică acum'}
+                        </span>
+                      </button>
+
+                      <button
+                        className="org-action-btn edit"
+                        onClick={() => handleEditEvent(ev)}
+                        title="Editează eveniment"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        className="org-action-btn delete"
+                        onClick={() => setShowDeleteConfirm(ev.id)}
+                        title="Șterge eveniment"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </main>
+
+        {editingEvent && (
+          <div className="org-modal-backdrop">
+            <div className="org-modal">
+              <h2>Editează evenimentul</h2>
+              <div className="org-modal-body">
+                <div className="org-form-group">
+                  <label>Nume organizator *</label>
+                  <input
+                    type="text"
+                    value={editingEvent.organizerName}
+                    onChange={(e) =>
+                      setEditingEvent({
+                        ...editingEvent,
+                        organizerName: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="org-form-group">
+                  <label>CUI *</label>
+                  <input
+                    type="text"
+                    value={editingEvent.cui}
+                    onChange={(e) =>
+                      setEditingEvent({
+                        ...editingEvent,
+                        cui: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="org-form-group">
+                  <label>Titlu *</label>
+                  <input
+                    type="text"
+                    value={editingEvent.title}
+                    onChange={(e) =>
+                      setEditingEvent({
+                        ...editingEvent,
+                        title: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="org-form-group">
+                  <label>Dată *</label>
+                  <input
+                    type="date"
+                    value={editingEvent.date}
+                    onChange={(e) =>
+                      setEditingEvent({
+                        ...editingEvent,
+                        date: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="org-form-group">
+                  <label>Locație *</label>
+                  <input
+                    type="text"
+                    value={editingEvent.location}
+                    onChange={(e) =>
+                      setEditingEvent({
+                        ...editingEvent,
+                        location: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="org-form-group">
+                  <label>Preț bilet (RON) *</label>
+                  <input
+                    type="text"
+                    value={editingEvent.price}
+                    onChange={(e) =>
+                      setEditingEvent({
+                        ...editingEvent,
+                        price: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="org-form-group">
+                  <label>Link hartă (Google Maps)</label>
+                  <input
+                    type="text"
+                    value={editingEvent.mapLink}
+                    onChange={(e) =>
+                      setEditingEvent({
+                        ...editingEvent,
+                        mapLink: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="org-modal-footer">
+                <button className="org-secondary-btn" onClick={handleCancelEdit}>
+                  Anulează
+                </button>
+                <button className="org-primary-btn" onClick={handleSaveEdit}>
+                  Salvează
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showDeleteConfirm && (
+          <div className="org-modal-backdrop">
+            <div className="org-modal">
+              <h2>Ștergi acest eveniment?</h2>
+              <p>
+                Această acțiune nu poate fi anulată. Ești sigur că vrei să continui?
+              </p>
+              <div className="org-modal-footer">
+                <button
+                  className="org-secondary-btn"
+                  onClick={() => setShowDeleteConfirm(null)}
+                >
+                  Anulează
+                </button>
+                <button
+                  className="org-danger-btn"
+                  onClick={() => handleDeleteEvent(showDeleteConfirm)}
+                >
+                  Șterge
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <style>{`
+        * {
+          box-sizing: border-box;
+          margin: 0;
+          padding: 0;
+        }
+
+        body {
+          margin: 0;
+          padding: 0;
+        }
+
         .organizer-app {
           min-height: 100vh;
-          background: radial-gradient(circle at top left, #020617 0%, #020617 30%, #020617 100%);
+          width: 100%;
+          background: radial-gradient(circle at top left, rgba(56, 189, 248, 0.15), transparent 50%),
+                      radial-gradient(circle at bottom right, rgba(147, 51, 234, 0.15), transparent 50%),
+                      #020617;
           color: #e5e7eb;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+          display: flex;
+          justify-content: center;
+          align-items: flex-start;
+          padding: 24px;
         }
+
         .organizer-app.light {
-          background: #f3f4f6;
+          background: radial-gradient(circle at top left, rgba(56, 189, 248, 0.2), transparent 50%),
+                      radial-gradient(circle at bottom right, rgba(147, 51, 234, 0.2), transparent 50%),
+                      #f3f4f6;
           color: #111827;
         }
 
+        .org-glass-container {
+          width: 100%;
+          max-width: 1120px;
+          background: rgba(15, 23, 42, 0.9);
+          border-radius: 24px;
+          border: 1px solid rgba(148, 163, 184, 0.4);
+          box-shadow: 0 24px 60px rgba(15, 23, 42, 0.7);
+          overflow: hidden;
+          backdrop-filter: blur(24px);
+        }
+
+        .organizer-app.light .org-glass-container {
+          background: rgba(249, 250, 251, 0.9);
+          border-color: rgba(209, 213, 219, 0.8);
+          box-shadow: 0 24px 60px rgba(148, 163, 184, 0.4);
+        }
+
         .org-header {
-          padding: 18px 20px;
-          border-bottom: 1px solid rgba(148, 163, 184, 0.4);
+          padding: 20px 24px;
+          border-bottom: 1px solid rgba(148, 163, 184, 0.3);
           display: flex;
           justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 16px;
+          background: rgba(15, 23, 42, 0.5);
+          backdrop-filter: blur(20px);
+        }
+
+        .organizer-app.light .org-header {
+          background: linear-gradient(to right, rgba(239, 246, 255, 0.9), rgba(249, 250, 251, 0.9));
+          border-bottom-color: rgba(209, 213, 219, 0.9);
+        }
+
+        .org-header-left {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+        }
+
+        .org-logo-area {
+          display: flex;
           align-items: center;
           gap: 12px;
         }
 
-        .org-title {
-          font-size: 22px;
-          font-weight: 800;
+        .org-logo-circle {
+          width: 40px;
+          height: 40px;
+          border-radius: 999px;
+          background: radial-gradient(circle at top left, #38bdf8, #6366f1);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 700;
+          color: #0b1120;
+          box-shadow: 0 10px 25px rgba(59, 130, 246, 0.5);
         }
 
-        .org-subtitle {
-          font-size: 13px;
-          color: #9ca3af;
-          margin-top: 4px;
+        .organizer-app.light .org-logo-circle {
+          box-shadow: 0 10px 25px rgba(59, 130, 246, 0.35);
         }
-        .organizer-app.light .org-subtitle {
-          color: #6b7280;
+
+        .org-logo-area h1 {
+          font-size: 20px;
+          font-weight: 600;
+        }
+
+        .org-logo-area p {
+          font-size: 13px;
+          opacity: 0.8;
         }
 
         .org-header-right {
           display: flex;
-          gap: 8px;
           align-items: center;
+          gap: 10px;
         }
 
-        .org-theme-toggle,
-        .org-logout {
-          padding: 7px 12px;
+        .org-theme-toggle {
+          padding: 8px 14px;
+          border-radius: 999px;
+          border: 1px solid rgba(148, 163, 184, 0.6);
+          background: rgba(15, 23, 42, 0.85);
+          color: inherit;
+          cursor: pointer;
+          font-size: 13px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          transition: all 0.2s;
+        }
+
+        .organizer-app.light .org-theme-toggle {
+          background: rgba(255, 255, 255, 0.9);
+        }
+
+        .org-theme-toggle:hover {
+          border-color: rgba(129, 140, 248, 0.9);
+          box-shadow: 0 8px 22px rgba(30, 64, 175, 0.6);
+          transform: translateY(-1px);
+        }
+
+        .org-logout-btn {
+          padding: 8px 14px;
+          border-radius: 999px;
+          border: none;
+          background: linear-gradient(135deg, #ef4444, #f97316);
+          color: #f9fafb;
+          font-size: 13px;
+          cursor: pointer;
+          font-weight: 500;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          box-shadow: 0 10px 25px rgba(248, 113, 113, 0.65);
+          transition: all 0.2s;
+        }
+
+        .org-logout-btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 14px 35px rgba(248, 113, 113, 0.9);
+        }
+
+        .organizer-app.light .org-logout-btn {
+          box-shadow: 0 10px 25px rgba(248, 113, 113, 0.6);
+        }
+
+        .org-main {
+          display: grid;
+          grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.5fr);
+          gap: 24px;
+          padding: 20px 24px 24px;
+        }
+
+        @media (max-width: 960px) {
+          .org-main {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        .org-create-section,
+        .org-events-section {
+          background: radial-gradient(circle at top left, rgba(56, 189, 248, 0.08), transparent 55%),
+                      radial-gradient(circle at bottom right, rgba(147, 51, 234, 0.08), transparent 55%),
+                      rgba(15, 23, 42, 0.95);
+          border-radius: 20px;
+          padding: 18px 18px 20px;
+          border: 1px solid rgba(148, 163, 184, 0.4);
+          box-shadow: 0 20px 40px rgba(15, 23, 42, 0.7);
+          position: relative;
+          overflow: hidden;
+        }
+
+        .organizer-app.light .org-create-section,
+        .organizer-app.light .org-events-section {
+          background: radial-gradient(circle at top left, rgba(59, 130, 246, 0.05), transparent 55%),
+                      radial-gradient(circle at bottom right, rgba(236, 72, 153, 0.05), transparent 55%),
+                      rgba(255, 255, 255, 0.98);
+          border-color: rgba(209, 213, 219, 0.9);
+          box-shadow: 0 20px 40px rgba(148, 163, 184, 0.4);
+        }
+
+        .org-create-section::before,
+        .org-events-section::before {
+          content: '';
+          position: absolute;
+          inset: -40%;
+          background: radial-gradient(circle at 10% 0%, rgba(59, 130, 246, 0.12), transparent 50%),
+                      radial-gradient(circle at 90% 100%, rgba(236, 72, 153, 0.12), transparent 50%);
+          opacity: 0.9;
+          pointer-events: none;
+        }
+
+        .organizer-app.light .org-create-section::before,
+        .organizer-app.light .org-events-section::before {
+          opacity: 0.8;
+        }
+
+        .org-create-section > *,
+        .org-events-section > * {
+          position: relative;
+          z-index: 1;
+        }
+
+        .org-create-section h2,
+        .org-events-section h2 {
+          font-size: 18px;
+          font-weight: 600;
+          margin-bottom: 4px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .org-section-subtitle {
+          font-size: 13px;
+          opacity: 0.9;
+          margin-bottom: 18px;
+        }
+
+        .org-form {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .org-form-row {
+          display: flex;
+          gap: 12px;
+        }
+
+        @media (max-width: 640px) {
+          .org-form-row {
+            flex-direction: column;
+          }
+        }
+
+        .org-form-group {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .org-form-group label {
+          font-size: 13px;
+          opacity: 0.95;
+        }
+
+        .org-required {
+          color: #f97316;
+          font-size: 12px;
+          margin-left: 3px;
+        }
+
+        .org-optional {
+          font-size: 11px;
+          opacity: 0.8;
+          margin-left: 4px;
+        }
+
+        .org-form-group input,
+        .org-form-group select {
+          padding: 8px 10px;
+          border-radius: 10px;
+          border: 1px solid rgba(148, 163, 184, 0.6);
+          background: rgba(15, 23, 42, 0.9);
+          color: inherit;
+          font-size: 13px;
+          outline: none;
+          transition: all 0.15s;
+        }
+
+        .org-form-group input::placeholder {
+          opacity: 0.7;
+        }
+
+        .org-form-group input:focus,
+        .org-form-group select:focus {
+          border-color: rgba(129, 140, 248, 0.9);
+          box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.6);
+          background: rgba(15, 23, 42, 0.95);
+        }
+
+        .organizer-app.light .org-form-group input,
+        .organizer-app.light .org-form-group select {
+          background: rgba(249, 250, 251, 0.95);
+          border-color: rgba(209, 213, 219, 1);
+        }
+
+        .organizer-app.light .org-form-group input:focus,
+        .organizer-app.light .org-form-group select:focus {
+          border-color: rgba(59, 130, 246, 0.9);
+          box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.6);
+          background: #ffffff;
+        }
+
+        .org-helper-text {
+          font-size: 11px;
+          opacity: 0.8;
+        }
+
+        .org-form-footer {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-top: 6px;
+          flex-wrap: wrap;
+        }
+
+        .org-info {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 12px;
+          opacity: 0.9;
+        }
+
+        .org-badge {
+          padding: 3px 8px;
+          border-radius: 999px;
+          font-size: 11px;
+          font-weight: 500;
+          border: 1px solid transparent;
+        }
+
+        .org-badge.draft {
+          background: rgba(148, 163, 184, 0.25);
+          border-color: rgba(148, 163, 184, 0.5);
+        }
+
+        .org-badge.published {
+          background: rgba(34, 197, 94, 0.2);
+          border-color: rgba(34, 197, 94, 0.7);
+        }
+
+        .organizer-app.light .org-badge.draft {
+          background: rgba(148, 163, 184, 0.15);
+        }
+
+        .organizer-app.light .org-badge.published {
+          background: rgba(34, 197, 94, 0.15);
+        }
+
+        .org-primary-btn {
+          padding: 9px 16px;
+          border-radius: 999px;
+          background: linear-gradient(135deg, #4f46e5, #06b6d4);
+          border: none;
+          color: #f9fafb;
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          box-shadow: 0 12px 30px rgba(59, 130, 246, 0.7);
+          transition: all 0.2s;
+        }
+
+        .org-primary-btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 16px 40px rgba(59, 130, 246, 0.9);
+        }
+
+        .organizer-app.light .org-primary-btn {
+          box-shadow: 0 12px 30px rgba(59, 130, 246, 0.6);
+        }
+
+        .org-secondary-btn,
+        .org-danger-btn {
+          padding: 8px 14px;
+          border-radius: 999px;
+          border: 1px solid rgba(148, 163, 184, 0.7);
+          background: transparent;
+          color: inherit;
+          font-size: 13px;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          transition: all 0.2s;
+        }
+
+        .org-secondary-btn:hover {
+          background: rgba(15, 23, 42, 0.9);
+          transform: translateY(-1px);
+        }
+
+        .organizer-app.light .org-secondary-btn:hover {
+          background: rgba(229, 231, 235, 0.7);
+        }
+
+        .org-danger-btn {
+          border-color: rgba(248, 113, 113, 0.8);
+          color: #fecaca;
+        }
+
+        .organizer-app.light .org-danger-btn {
+          color: #b91c1c;
+        }
+
+        .org-danger-btn:hover {
+          background: rgba(127, 29, 29, 0.9);
+        }
+
+        .organizer-app.light .org-danger-btn:hover {
+          background: rgba(254, 202, 202, 0.9);
+        }
+
+        .org-events-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 12px;
+          margin-bottom: 14px;
+          flex-wrap: wrap;
+        }
+
+        .org-filters {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 8px;
+        }
+
+        @media (max-width: 640px) {
+          .org-events-header {
+            flex-direction: column;
+          }
+
+          .org-filters {
+            align-items: stretch;
+          }
+        }
+
+        .org-search input {
+          padding: 7px 10px;
           border-radius: 999px;
           border: 1px solid rgba(148, 163, 184, 0.8);
           background: rgba(15, 23, 42, 0.9);
-          color: #e5e7eb;
+          color: inherit;
+          font-size: 13px;
+          width: 260px;
+          outline: none;
+          transition: all 0.15s;
+        }
+
+        .org-search input::placeholder {
+          opacity: 0.7;
+        }
+
+        .org-search input:focus {
+          border-color: rgba(59, 130, 246, 0.9);
+          box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.6);
+        }
+
+        .organizer-app.light .org-search input {
+          background: rgba(255, 255, 255, 0.95);
+          border-color: rgba(209, 213, 219, 1);
+        }
+
+        .organizer-app.light .org-search input:focus {
+          border-color: rgba(59, 130, 246, 0.9);
+        }
+
+        .org-status-filters {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .org-filter-btn {
+          padding: 5px 10px;
+          border-radius: 999px;
+          border: 1px solid transparent;
+          background: rgba(15, 23, 42, 0.75);
           font-size: 12px;
-          font-weight: 600;
           cursor: pointer;
-        }
-        .organizer-app.light .org-theme-toggle,
-        .organizer-app.light .org-logout {
-          background: #ffffff;
-          color: #111827;
-          border-color: #d1d5db;
+          color: inherit;
+          opacity: 0.85;
+          transition: all 0.15s;
         }
 
-        /* ✅ FULL WIDTH LAYOUT */
-        .org-layout {
-          width: 100%;
-          margin: 16px 0 24px;
-          padding: 0 20px 24px;
-          display: grid;
-          grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-          gap: 18px;
+        .organizer-app.light .org-filter-btn {
+          background: rgba(243, 244, 246, 0.9);
         }
 
-        .org-panel {
-          background: rgba(15, 23, 42, 0.95);
-          border-radius: 18px;
-          padding: 16px 14px 18px;
-          border: 1px solid rgba(148, 163, 184, 0.4);
-          box-shadow: 0 12px 28px rgba(15, 23, 42, 0.9);
-        }
-        .organizer-app.light .org-panel {
-          background: #ffffff;
-          border-color: #e5e7eb;
-          box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+        .org-filter-btn.active {
+          border-color: rgba(129, 140, 248, 0.9);
+          background: radial-gradient(circle at top left, rgba(59, 130, 246, 0.6), rgba(96, 165, 250, 0.7));
+          color: #f9fafb;
+          opacity: 1;
         }
 
-        .org-panel h2 {
-          font-size: 16px;
-          font-weight: 800;
-          margin-bottom: 4px;
-        }
-
-        .org-panel-subtitle {
-          font-size: 12px;
-          color: #9ca3af;
-          margin-bottom: 12px;
-        }
-        .organizer-app.light .org-panel-subtitle {
-          color: #6b7280;
+        .organizer-app.light .org-filter-btn.active {
+          color: #f9fafb;
         }
 
         .org-events-list {
           display: flex;
           flex-direction: column;
           gap: 10px;
+          max-height: 420px;
+          overflow-y: auto;
+          padding-right: 4px;
+        }
+
+        .org-events-list::-webkit-scrollbar {
+          width: 6px;
+        }
+
+        .org-events-list::-webkit-scrollbar-track {
+          background: rgba(15, 23, 42, 0.6);
+          border-radius: 999px;
+        }
+
+        .org-events-list::-webkit-scrollbar-thumb {
+          background: rgba(148, 163, 184, 0.8);
+          border-radius: 999px;
+        }
+
+        .organizer-app.light .org-events-list::-webkit-scrollbar-track {
+          background: rgba(229, 231, 235, 0.8);
+        }
+
+        .organizer-app.light .org-events-list::-webkit-scrollbar-thumb {
+          background: rgba(156, 163, 175, 0.9);
         }
 
         .org-event-card {
           display: flex;
+          align-items: center;
           justify-content: space-between;
-          align-items: flex-start;
-          gap: 10px;
-          padding: 10px 10px;
-          border-radius: 12px;
-          background: rgba(15, 23, 42, 0.9);
-          border: 1px solid rgba(148, 163, 184, 0.5);
+          gap: 12px;
+          padding: 10px 12px;
+          border-radius: 14px;
+          border: 1px solid rgba(148, 163, 184, 0.6);
+          background: radial-gradient(circle at top left, rgba(59, 130, 246, 0.24), transparent 55%),
+                      rgba(15, 23, 42, 0.9);
+          box-shadow: 0 16px 32px rgba(15, 23, 42, 0.7);
         }
+
+        .org-event-card.draft {
+          background: radial-gradient(circle at top left, rgba(148, 163, 184, 0.25), transparent 55%),
+                      rgba(15, 23, 42, 0.9);
+          border-style: dashed;
+        }
+
         .organizer-app.light .org-event-card {
-          background: #f9fafb;
-          border-color: #e5e7eb;
+          background: radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 55%),
+                      rgba(255, 255, 255, 0.98);
+          box-shadow: 0 16px 32px rgba(148, 163, 184, 0.4);
+        }
+
+        .organizer-app.light .org-event-card.draft {
+          background: radial-gradient(circle at top left, rgba(148, 163, 184, 0.15), transparent 55%),
+                      rgba(249, 250, 251, 0.98);
         }
 
         .org-event-main h3 {
-          font-size: 14px;
-          font-weight: 700;
+          font-size: 15px;
           margin-bottom: 4px;
         }
 
         .org-event-main p {
-          font-size: 12px;
-          color: #9ca3af;
+          font-size: 13px;
+          opacity: 0.9;
         }
-        .organizer-app.light .org-event-main p {
-          color: #6b7280;
+
+        .org-map-link {
+          color: #60a5fa;
+          text-decoration: underline;
+          text-underline-offset: 2px;
+        }
+
+        .organizer-app.light .org-map-link {
+          color: #2563eb;
+        }
+
+        .org-event-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
         }
 
         .org-status-badge {
-          padding: 4px 9px;
+          padding: 3px 10px;
           border-radius: 999px;
           font-size: 11px;
-          font-weight: 700;
+          font-weight: 500;
+          border: 1px solid transparent;
         }
 
         .org-status-badge.published {
-          background: #22c55e;
-          color: #052e16;
+          background: rgba(22, 163, 74, 0.2);
+          border-color: rgba(22, 163, 74, 0.9);
+          color: #bbf7d0;
+        }
+
+        .organizer-app.light .org-status-badge.published {
+          color: #166534;
+          background: rgba(220, 252, 231, 0.9);
         }
 
         .org-status-badge.draft {
+          background: rgba(148, 163, 184, 0.25);
+          border-color: rgba(148, 163, 184, 0.8);
+        }
+
+        .organizer-app.light .org-status-badge.draft {
+          background: rgba(229, 231, 235, 0.9);
+        }
+
+        .org-action-btn {
+          width: 32px;
+          height: 32px;
+          border-radius: 8px;
+          border: 1px solid rgba(148, 163, 184, 0.4);
+          background: rgba(15, 23, 42, 0.6);
+          cursor: pointer;
+          font-size: 14px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s;
+        }
+
+        .org-action-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .org-action-btn.edit:hover {
+          background: rgba(59, 130, 246, 0.2);
+          border-color: rgba(59, 130, 246, 0.6);
+        }
+
+        .org-action-btn.delete:hover {
+          background: rgba(239, 68, 68, 0.2);
+          border-color: rgba(239, 68, 68, 0.6);
+        }
+
+        .organizer-app.light .org-action-btn {
+          background: #ffffff;
+          border-color: #e5e7eb;
+        }
+
+        .organizer-app.light .org-action-btn:hover {
+          box-shadow: 0 4px 14px rgba(148, 163, 184, 0.7);
+        }
+
+        /* Buton nou pentru toggle Draft / Publică */
+        .org-toggle-status-btn {
+          border: none;
+          background: transparent;
+          padding: 0;
+          cursor: pointer;
+        }
+
+        .org-toggle-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 12px;
+          border-radius: 999px;
+          font-size: 11px;
+          font-weight: 500;
+          border: 1px solid rgba(148, 163, 184, 0.6);
+          background: radial-gradient(circle at top left, rgba(59, 130, 246, 0.25), rgba(15, 23, 42, 0.95));
+          box-shadow: 0 6px 14px rgba(15, 23, 42, 0.7);
+          transition: all 0.18s ease-out;
+          color: inherit;
+        }
+
+        .organizer-app.light .org-toggle-pill {
+          background: radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), #ffffff);
+          box-shadow: 0 6px 14px rgba(148, 163, 184, 0.5);
+        }
+
+        .org-toggle-status-btn .dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 999px;
+          background: #22c55e;
+          box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.2);
+        }
+
+        .org-toggle-status-btn.to-draft .dot {
           background: #f97316;
-          color: #451a03;
+          box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.25);
         }
 
-        .org-empty {
-          font-size: 12px;
-          color: #9ca3af;
+        .org-toggle-status-btn.to-published .dot {
+          background: #22c55e;
+          box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.25);
         }
 
-        .org-form {
+        .org-toggle-status-btn:hover .org-toggle-pill {
+          transform: translateY(-1px);
+          box-shadow: 0 10px 22px rgba(15, 23, 42, 0.9);
+          border-color: rgba(129, 140, 248, 0.9);
+        }
+
+        .organizer-app.light .org-toggle-status-btn:hover .org-toggle-pill {
+          box-shadow: 0 10px 22px rgba(148, 163, 184, 0.9);
+        }
+
+        .org-empty-state {
+          border-radius: 16px;
+          border: 1px dashed rgba(148, 163, 184, 0.6);
+          padding: 26px 18px;
+          text-align: center;
+          background: rgba(15, 23, 42, 0.85);
+        }
+
+        .organizer-app.light .org-empty-state {
+          background: rgba(249, 250, 251, 0.95);
+        }
+
+        .org-empty-icon {
+          font-size: 26px;
+          margin-bottom: 8px;
+        }
+
+        .org-empty-state h3 {
+          font-size: 15px;
+          margin-bottom: 4px;
+        }
+
+        .org-empty-state p {
+          font-size: 13px;
+          opacity: 0.9;
+        }
+
+        .org-modal-backdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(15, 23, 42, 0.8);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 50;
+          backdrop-filter: blur(6px);
+        }
+
+        .org-modal {
+          width: 100%;
+          max-width: 420px;
+          background: rgba(15, 23, 42, 0.98);
+          border-radius: 18px;
+          padding: 18px 18px 16px;
+          border: 1px solid rgba(148, 163, 184, 0.7);
+          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.75);
+        }
+
+        .organizer-app.light .org-modal {
+          background: rgba(255, 255, 255, 0.98);
+          border-color: rgba(209, 213, 219, 1);
+          box-shadow: 0 20px 40px rgba(148, 163, 184, 0.8);
+        }
+
+        .org-modal h2 {
+          font-size: 17px;
+          margin-bottom: 12px;
+        }
+
+        .org-modal p {
+          font-size: 13px;
+          opacity: 0.9;
+          margin-bottom: 14px;
+        }
+
+        .org-modal-body {
           display: flex;
           flex-direction: column;
           gap: 10px;
+          margin-bottom: 14px;
         }
 
-        .org-field {
+        .org-modal-footer {
           display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-
-        .org-field label {
-          font-size: 12px;
-          font-weight: 600;
-          color: #cbd5f5;
-        }
-        .organizer-app.light .org-field label {
-          color: #4b5563;
-        }
-
-        .org-field input {
-          padding: 8px 10px;
-          border-radius: 10px;
-          border: 1px solid rgba(148, 163, 184, 0.7);
-          background: rgba(15, 23, 42, 0.9);
-          color: #e5e7eb;
-          font-size: 13px;
-          outline: none;
-        }
-        .organizer-app.light .org-field input {
-          background: #ffffff;
-          color: #111827;
-          border-color: #d1d5db;
-        }
-
-        .org-submit {
-          margin-top: 6px;
-          padding: 9px;
-          border-radius: 999px;
-          border: none;
-          font-size: 13px;
-          font-weight: 700;
-          cursor: pointer;
-          background: linear-gradient(135deg, #6366f1, #a855f7);
-          color: #f9fafb;
-          box-shadow: 0 10px 20px rgba(79, 70, 229, 0.45);
-        }
-
-        .org-hint {
-          margin-top: 10px;
-          font-size: 12px;
-          color: #9ca3af;
-        }
-        .organizer-app.light .org-hint {
-          color: #6b7280;
-        }
-
-        @media (max-width: 900px) {
-          .org-layout {
-            grid-template-columns: 1fr;
-          }
+          justify-content: flex-end;
+          gap: 8px;
         }
       `}</style>
+      </div>
     </div>
   );
 }

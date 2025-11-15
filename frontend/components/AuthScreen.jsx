@@ -3,20 +3,100 @@ import React, { useState } from 'react';
 
 function AuthScreen({ onAuthSuccess, onOrganizerLogin, onOrganizerSignup, theme, onToggleTheme }) {
   const [mode, setMode] = useState('login');
+  const [accountType, setAccountType] = useState('participant'); // participant | organizer | guest
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPass, setConfirmPass] = useState('');
-  const [isOrganizer, setIsOrganizer] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [isValidatingEmail, setIsValidatingEmail] = useState(false);
 
-  const handleLogin = () => {
+  // Validare email folosind API
+  const validateEmail = async (email) => {
+    setEmailError('');
+    if (!email.trim()) return false;
+
+    // Validare format bazic
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setEmailError('Formatul email-ului este invalid.');
+      return false;
+    }
+
+    setIsValidatingEmail(true);
+    try {
+      const response = await fetch(
+        `https://emailvalidation.abstractapi.com/v1/?api_key=test&email=${encodeURIComponent(
+          email
+        )}`
+      );
+      const data = await response.json();
+
+      setIsValidatingEmail(false);
+
+      // Verificăm dacă email-ul este valid
+      if (data.deliverability === 'UNDELIVERABLE') {
+        setEmailError('Acest email nu este valid sau nu există.');
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      setIsValidatingEmail(false);
+      // Dacă API-ul eșuează, permitem continuarea (fallback la validare bazică)
+      console.warn('Email validation API failed, using basic validation');
+      return true;
+    }
+  };
+
+  // Validare parolă
+  const validatePassword = (password) => {
+    setPasswordError('');
+
+    if (password.length < 10) {
+      setPasswordError('Parola trebuie să aibă minim 10 caractere.');
+      return false;
+    }
+
+    const letters = password.match(/[a-zA-Z]/g) || [];
+    const uppercaseLetters = password.match(/[A-Z]/g) || [];
+    const digits = password.match(/\d/g) || [];
+    const specialChars = password.match(/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/g) || [];
+
+    if (letters.length < 7) {
+      setPasswordError('Parola trebuie să aibă minim 7 litere.');
+      return false;
+    }
+
+    if (uppercaseLetters.length < 2) {
+      setPasswordError('Parola trebuie să aibă minim 2 litere mari.');
+      return false;
+    }
+
+    if (digits.length < 2) {
+      setPasswordError('Parola trebuie să aibă minim 2 cifre.');
+      return false;
+    }
+
+    if (specialChars.length < 1) {
+      setPasswordError('Parola trebuie să aibă minim 1 caracter special (!@#$%^&* etc.).');
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
       alert('Completați toate câmpurile.');
       return;
     }
-    
+
     // Simulăm verificare dacă e cont de organizator
     const isOrganizerAccount = email.includes('organizator') || email.includes('org');
-    
+
     if (isOrganizerAccount && onOrganizerLogin) {
       onOrganizerLogin();
     } else {
@@ -24,16 +104,36 @@ function AuthScreen({ onAuthSuccess, onOrganizerLogin, onOrganizerSignup, theme,
     }
   };
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
+    // Dacă e Guest, nu cerem date, doar intrăm
+    if (accountType === 'guest') {
+      alert('Ai intrat ca invitat. Poți explora evenimentele, dar pentru rezervări va fi nevoie de cont.');
+      onAuthSuccess();
+      return;
+    }
+
     if (!email.trim() || !password.trim() || !confirmPass.trim()) {
       alert('Completați toate câmpurile obligatorii.');
       return;
     }
+
+    // Validare email
+    const isEmailValid = await validateEmail(email);
+    if (!isEmailValid) {
+      return;
+    }
+
+    // Validare parolă
+    if (!validatePassword(password)) {
+      return;
+    }
+
     if (password !== confirmPass) {
       alert('Parolele nu se potrivesc!');
       return;
     }
-    if (isOrganizer) {
+
+    if (accountType === 'organizer') {
       // Redirecționează către pagina de completare date organizator
       if (onOrganizerSignup) {
         onOrganizerSignup(email, password);
@@ -42,6 +142,12 @@ function AuthScreen({ onAuthSuccess, onOrganizerLogin, onOrganizerSignup, theme,
       alert('Cont creat cu succes!');
       onAuthSuccess();
     }
+  };
+
+  const getSubmitLabel = () => {
+    if (mode === 'login') return 'Continuă';
+    if (accountType === 'guest') return 'Intră ca invitat';
+    return 'Creează cont';
   };
 
   return (
@@ -177,54 +283,165 @@ function AuthScreen({ onAuthSuccess, onOrganizerLogin, onOrganizerSignup, theme,
               <div className="organizer-toggle">
                 <button
                   type="button"
-                  className={`toggle-option ${!isOrganizer ? 'active' : ''}`}
-                  onClick={() => setIsOrganizer(false)}
+                  className={`toggle-option ${accountType === 'participant' ? 'active' : ''}`}
+                  onClick={() => setAccountType('participant')}
                 >
                   Participant
                 </button>
                 <button
                   type="button"
-                  className={`toggle-option ${isOrganizer ? 'active' : ''}`}
-                  onClick={() => setIsOrganizer(true)}
+                  className={`toggle-option ${accountType === 'organizer' ? 'active' : ''}`}
+                  onClick={() => setAccountType('organizer')}
                 >
                   Organizator
+                </button>
+                <button
+                  type="button"
+                  className={`toggle-option ${accountType === 'guest' ? 'active' : ''}`}
+                  onClick={() => {
+                    setAccountType('guest');
+                    setEmail('');
+                    setPassword('');
+                    setConfirmPass('');
+                    setEmailError('');
+                    setPasswordError('');
+                  }}
+                >
+                  Guest
                 </button>
               </div>
             )}
 
             <div className="form-scroll-container">
-              <div className="input-group">
-                <label className="input-label">Email</label>
-                <input
-                  type="email"
-                  className="input-field"
-                  placeholder="nume@exemplu.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
+              {!(mode === 'register' && accountType === 'guest') && (
+                <>
+                  <div className="input-group">
+                    <label className="input-label">Email</label>
+                    <input
+                      type="email"
+                      className={`input-field ${emailError ? 'input-error' : ''}`}
+                      placeholder="nume@exemplu.com"
+                      value={email}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        setEmailError('');
+                      }}
+                    />
+                    {emailError && <p className="error-message">{emailError}</p>}
+                    {isValidatingEmail && <p className="info-message">Se verifică email-ul...</p>}
+                  </div>
 
-              <div className="input-group">
-                <label className="input-label">Parolă</label>
-                <input
-                  type="password"
-                  className="input-field"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
+                  <div className="input-group">
+                    <label className="input-label">Parolă</label>
+                    <div className="password-input-wrapper">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        className={`input-field ${passwordError ? 'input-error' : ''}`}
+                        placeholder="••••••••"
+                        value={password}
+                        onChange={(e) => {
+                          setPassword(e.target.value);
+                          setPasswordError('');
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="toggle-password"
+                        onClick={() => setShowPassword(!showPassword)}
+                        aria-label={showPassword ? 'Ascunde parola' : 'Arată parola'}
+                      >
+                        {showPassword ? (
+                          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path
+                              d="M3 3L21 21M10.5 10.677A2 2 0 0013.323 13.5M12 5.5C7 5.5 3 12 3 12C3 12 4.5 14.5 7 16.5M9.878 9.878C9.316 10.44 9 11.175 9 12C9 13.657 10.343 15 12 15C12.825 15 13.56 14.684 14.122 14.122M15 8.5C14.09 7.94 13.08 7.5 12 7.5M17 13C18.5 11.5 21 12 21 12C21 12 17 18.5 12 18.5C11.35 18.5 10.73 18.41 10.14 18.25"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path
+                              d="M12 5.5C7 5.5 3 12 3 12C3 12 7 18.5 12 18.5C17 18.5 21 12 21 12C21 12 17 5.5 12 5.5Z"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                            <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                    {passwordError && <p className="error-message">{passwordError}</p>}
+                    {mode === 'register' && !passwordError && (
+                      <p className="password-requirements">
+                        Minim 10 caractere: 7 litere (2 mari), 2 cifre, 1 caracter special
+                      </p>
+                    )}
+                  </div>
 
-              {mode === 'register' && (
+                  {mode === 'register' && (
+                    <div className="input-group">
+                      <label className="input-label">Confirmă parola</label>
+                      <div className="password-input-wrapper">
+                        <input
+                          type={showConfirmPass ? 'text' : 'password'}
+                          className="input-field"
+                          placeholder="••••••••"
+                          value={confirmPass}
+                          onChange={(e) => setConfirmPass(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="toggle-password"
+                          onClick={() => setShowConfirmPass(!showConfirmPass)}
+                          aria-label={showConfirmPass ? 'Ascunde parola' : 'Arată parola'}
+                        >
+                          {showConfirmPass ? (
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              xmlns="http://www.w3.org/2000/svg"
+                            >
+                              <path
+                                d="M3 3L21 21M10.5 10.677A2 2 0 0013.323 13.5M12 5.5C7 5.5 3 12 3 12C3 12 4.5 14.5 7 16.5M9.878 9.878C9.316 10.44 9 11.175 9 12C9 13.657 10.343 15 12 15C12.825 15 13.56 14.684 14.122 14.122M15 8.5C14.09 7.94 13.08 7.5 12 7.5M17 13C18.5 11.5 21 12 21 12C21 12 17 18.5 12 18.5C11.35 18.5 10.73 18.41 10.14 18.25"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          ) : (
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              xmlns="http://www.w3.org/2000/svg"
+                            >
+                              <path
+                                d="M12 5.5C7 5.5 3 12 3 12C3 12 7 18.5 12 18.5C17 18.5 21 12 21 12C21 12 17 5.5 12 5.5Z"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                              <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" />
+                            </svg>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {mode === 'register' && accountType === 'guest' && (
                 <div className="input-group">
-                  <label className="input-label">Confirmă parola</label>
-                  <input
-                    type="password"
-                    className="input-field"
-                    placeholder="••••••••"
-                    value={confirmPass}
-                    onChange={(e) => setConfirmPass(e.target.value)}
-                  />
+                  <p className="info-message">
+                    Nu ai nevoie de email sau parolă pentru a intra ca invitat. Doar apasă{' '}
+                    <strong>„Intră ca invitat”</strong> și poți explora evenimentele.
+                  </p>
                 </div>
               )}
             </div>
@@ -232,28 +449,23 @@ function AuthScreen({ onAuthSuccess, onOrganizerLogin, onOrganizerSignup, theme,
             <button
               className="submit-button"
               onClick={mode === 'login' ? handleLogin : handleRegister}
+              disabled={isValidatingEmail && accountType !== 'guest'}
             >
-              {mode === 'login' ? 'Continuă' : 'Creează cont'}
+              {getSubmitLabel()}
             </button>
 
             <div className="form-switch">
               {mode === 'login' ? (
                 <p>
                   Nu ai cont?{' '}
-                  <button
-                    onClick={() => setMode('register')}
-                    className="switch-link"
-                  >
+                  <button onClick={() => setMode('register')} className="switch-link">
                     Înregistrează-te
                   </button>
                 </p>
               ) : (
                 <p>
                   Ai deja cont?{' '}
-                  <button
-                    onClick={() => setMode('login')}
-                    className="switch-link"
-                  >
+                  <button onClick={() => setMode('login')} className="switch-link">
                     Autentifică-te
                   </button>
                 </p>
@@ -265,7 +477,9 @@ function AuthScreen({ onAuthSuccess, onOrganizerLogin, onOrganizerSignup, theme,
                 <p>
                   💡 Sfat: Organizatorii pot folosi email-uri care conțin{' '}
                   <span className="hint-highlight">"organizator"</span> sau{' '}
-                  <span className="hint-highlight">"org"</span>
+                  <span className="hint-highlight">"org"</span>. <br />
+                  Sau poți intra din ecranul de înregistrare ca{' '}
+                  <span className="hint-highlight">Guest</span> doar ca să vezi despre ce e vorba.
                 </p>
               </div>
             )}
@@ -600,150 +814,263 @@ function AuthScreen({ onAuthSuccess, onOrganizerLogin, onOrganizerSignup, theme,
         }
 
         .auth-page.light .form-title {
-          color: #111827;
+          color: #0f172a;
         }
 
         .form-subtitle {
           font-size: 14px;
           color: #94a3b8;
-          margin-bottom: 28px;
+          margin-bottom: 24px;
           line-height: 1.5;
         }
 
         .auth-page.light .form-subtitle {
-          color: #64748b;
+          color: #6b7280;
         }
 
         .organizer-toggle {
-          display: flex;
-          gap: 8px;
-          padding: 6px;
-          background: rgba(15, 23, 42, 0.6);
-          border-radius: 12px;
-          margin-bottom: 24px;
-          border: 1px solid rgba(148, 163, 184, 0.2);
-          flex-shrink: 0;
+          display: inline-flex;
+          padding: 4px;
+          border-radius: 999px;
+          background: rgba(15, 23, 42, 0.7);
+          border: 1px solid rgba(148, 163, 184, 0.4);
+          margin-bottom: 20px;
+          gap: 4px;
         }
 
         .auth-page.light .organizer-toggle {
-          background: #f3f4f6;
+          background: rgba(248, 250, 252, 0.9);
           border-color: #e5e7eb;
         }
 
         .toggle-option {
-          flex: 1;
-          padding: 10px;
-          border-radius: 8px;
           border: none;
           background: transparent;
-          color: #94a3b8;
+          padding: 6px 14px;
+          border-radius: 999px;
           font-size: 13px;
           font-weight: 600;
+          color: #9ca3af;
           cursor: pointer;
-          transition: all 0.3s ease;
+          transition: all 0.2s ease;
+          min-width: 100px;
+          text-align: center;
         }
 
         .toggle-option.active {
           background: linear-gradient(135deg, #6366f1, #a855f7);
-          color: #ffffff;
-          box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
-        }
-
-        .auth-page.light .toggle-option {
-          color: #64748b;
-        }
-
-        .auth-page.light .toggle-option.active {
-          color: #ffffff;
+          color: #f9fafb;
+          box-shadow: 0 6px 15px rgba(79, 70, 229, 0.45);
         }
 
         .form-scroll-container {
-          margin-bottom: 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 18px;
+          margin-bottom: 24px;
+          max-height: 260px;
+          padding-right: 4px;
+          overflow-y: auto;
+        }
+
+        .form-scroll-container::-webkit-scrollbar {
+          width: 6px;
+        }
+
+        .form-scroll-container::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .form-scroll-container::-webkit-scrollbar-thumb {
+          background: rgba(148, 163, 184, 0.6);
+          border-radius: 999px;
+        }
+
+        .auth-page.light .form-scroll-container::-webkit-scrollbar-thumb {
+          background: rgba(156, 163, 175, 0.6);
         }
 
         .input-group {
-          margin-bottom: 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
         }
 
         .input-label {
-          display: block;
           font-size: 13px;
           font-weight: 600;
-          color: #cbd5e1;
-          margin-bottom: 8px;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+          color: #9ca3af;
         }
 
         .auth-page.light .input-label {
-          color: #475569;
+          color: #6b7280;
         }
 
         .input-field {
-          width: 100%;
-          padding: 14px 16px;
           border-radius: 12px;
-          border: 1px solid rgba(148, 163, 184, 0.3);
-          background: rgba(15, 23, 42, 0.6);
+          border: 1px solid rgba(148, 163, 184, 0.5);
+          background: rgba(15, 23, 42, 0.7);
           color: #e5e7eb;
+          padding: 10px 12px;
           font-size: 14px;
           outline: none;
-          transition: all 0.3s;
-        }
-
-        .auth-page.light .input-field {
-          background: #ffffff;
-          color: #111827;
-          border-color: #d1d5db;
+          transition: all 0.2s ease;
+          width: 100%;
         }
 
         .input-field::placeholder {
-          color: #64748b;
+          color: #6b7280;
         }
 
         .input-field:focus {
           border-color: #6366f1;
-          box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-          background: rgba(15, 23, 42, 0.8);
+          box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.5);
+          background: rgba(15, 23, 42, 0.9);
+        }
+
+        .auth-page.light .input-field {
+          background: rgba(255, 255, 255, 0.9);
+          color: #111827;
+          border-color: #e5e7eb;
+        }
+
+        .auth-page.light .input-field::placeholder {
+          color: #9ca3af;
         }
 
         .auth-page.light .input-field:focus {
+          border-color: #6366f1;
+          box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.4);
           background: #ffffff;
-          box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        .input-error {
+          border-color: #f87171 !important;
+          box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.4);
+        }
+
+        .password-input-wrapper {
+          position: relative;
+          display: flex;
+          align-items: center;
+        }
+
+        .toggle-password {
+          position: absolute;
+          right: 8px;
+          top: 50%;
+          transform: translateY(-50%);
+          border: none;
+          background: transparent;
+          width: 30px;
+          height: 30px;
+          border-radius: 999px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          color: #9ca3af;
+          transition: background 0.2s ease, color 0.2s ease, transform 0.1s ease;
+        }
+
+        .toggle-password svg {
+          width: 18px;
+          height: 18px;
+        }
+
+        .toggle-password:hover {
+          background: rgba(15, 23, 42, 0.7);
+          color: #e5e7eb;
+          transform: translateY(-50%) scale(1.02);
+        }
+
+        .auth-page.light .toggle-password:hover {
+          background: rgba(243, 244, 246, 1);
+          color: #111827;
+        }
+
+        .error-message {
+          font-size: 12px;
+          color: #fecaca;
+          margin: 0;
+        }
+
+        .auth-page.light .error-message {
+          color: #b91c1c;
+        }
+
+        .info-message {
+          font-size: 12px;
+          color: #e5e7eb;
+          opacity: 0.85;
+          margin: 0;
+        }
+
+        .auth-page.light .info-message {
+          color: #4b5563;
+        }
+
+        .password-requirements {
+          font-size: 11px;
+          color: #9ca3af;
+          margin: 0;
+        }
+
+        .auth-page.light .password-requirements {
+          color: #6b7280;
         }
 
         .submit-button {
           width: 100%;
-          padding: 14px;
-          border-radius: 12px;
+          border-radius: 999px;
           border: none;
+          padding: 12px 18px;
           font-size: 15px;
-          font-weight: 700;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
           cursor: pointer;
           background: linear-gradient(135deg, #6366f1, #a855f7, #ec4899);
-          color: #ffffff;
+          color: #f9fafb;
+          margin-top: 8px;
           box-shadow:
-            0 10px 25px rgba(99, 102, 241, 0.3),
-            0 4px 12px rgba(168, 85, 247, 0.2);
-          transition: all 0.3s ease;
-          flex-shrink: 0;
+            0 14px 35px rgba(79, 70, 229, 0.55),
+            0 0 0 1px rgba(148, 163, 184, 0.35);
+          transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
         }
 
         .submit-button:hover {
-          transform: translateY(-2px);
+          transform: translateY(-1px);
+          filter: brightness(1.05);
           box-shadow:
-            0 15px 35px rgba(99, 102, 241, 0.4),
-            0 6px 16px rgba(168, 85, 247, 0.3);
+            0 18px 40px rgba(79, 70, 229, 0.7),
+            0 0 0 1px rgba(148, 163, 184, 0.4);
+        }
+
+        .submit-button:active {
+          transform: translateY(0);
+          box-shadow:
+            0 8px 22px rgba(79, 70, 229, 0.7),
+            0 0 0 1px rgba(148, 163, 184, 0.4);
+        }
+
+        .submit-button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          box-shadow: none;
         }
 
         .form-switch {
           text-align: center;
-          margin-top: 20px;
+          margin-top: 16px;
           font-size: 13px;
-          color: #94a3b8;
-          flex-shrink: 0;
+          color: #9ca3af;
         }
 
         .auth-page.light .form-switch {
-          color: #64748b;
+          color: #6b7280;
         }
 
         .switch-link {
@@ -751,81 +1078,156 @@ function AuthScreen({ onAuthSuccess, onOrganizerLogin, onOrganizerSignup, theme,
           border: none;
           padding: 0;
           margin: 0;
-          cursor: pointer;
-          color: #a5b4fc;
+          font-size: 13px;
           font-weight: 600;
+          color: #6366f1;
+          cursor: pointer;
           text-decoration: none;
+          position: relative;
         }
 
-        .switch-link:hover {
-          text-decoration: underline;
+        .switch-link::after {
+          content: '';
+          position: absolute;
+          left: 0;
+          bottom: -2px;
+          width: 100%;
+          height: 1px;
+          background: linear-gradient(90deg, #6366f1, #ec4899);
+          transform-origin: left;
+          transform: scaleX(0);
+          transition: transform 0.2s ease;
+        }
+
+        .switch-link:hover::after {
+          transform: scaleX(1);
         }
 
         .login-hint {
           margin-top: 10px;
+          padding: 10px 12px;
+          border-radius: 12px;
+          background: rgba(15, 23, 42, 0.7);
+          border: 1px dashed rgba(148, 163, 184, 0.7);
           font-size: 12px;
           color: #9ca3af;
         }
 
         .auth-page.light .login-hint {
-          color: #6b7280;
+          background: rgba(249, 250, 251, 0.95);
+          border-color: #cbd5f5;
+          color: #4b5563;
         }
 
         .hint-highlight {
+          color: #f9fafb;
           font-weight: 600;
-          color: #a5b4fc;
+        }
+
+        .auth-page.light .hint-highlight {
+          color: #111827;
         }
 
         /* Responsive */
+
         @media (max-width: 1024px) {
           .auth-container {
-            grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+            grid-template-columns: minmax(0, 1fr);
+            max-width: 820px;
           }
 
           .auth-left {
-            padding: 40px 32px;
+            padding: 40px 32px 20px;
+            border-right: none;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.25);
           }
 
           .auth-right {
-            padding: 40px 32px;
-          }
-        }
-
-        @media (max-width: 900px) {
-          .auth-container {
-            grid-template-columns: 1fr;
-            min-height: auto;
-          }
-
-          .auth-left {
-            display: none;
-          }
-
-          .auth-right {
-            padding: 32px 20px;
+            padding: 28px 24px 36px;
           }
 
           .glass-card {
-            max-width: 420px;
-            margin: 0 auto;
-          }
-        }
-
-        @media (max-width: 480px) {
-          .auth-page {
-            padding: 18px 10px;
-          }
-
-          .glass-card {
-            padding: 24px 18px 20px;
-          }
-
-          .form-title {
-            font-size: 24px;
+            max-width: 100%;
           }
 
           .brand-title {
             font-size: 40px;
+          }
+        }
+
+        @media (max-width: 768px) {
+          .auth-page {
+            padding: 16px 12px;
+          }
+
+          .auth-container {
+            border-radius: 24px;
+          }
+
+          .auth-left {
+            padding: 28px 20px 16px;
+          }
+
+          .auth-right {
+            padding: 20px 16px 24px;
+          }
+
+          .brand-title {
+            font-size: 32px;
+          }
+
+          .brand-subtitle {
+            font-size: 14px;
+            margin-bottom: 24px;
+          }
+
+          .brand-features {
+            gap: 14px;
+          }
+
+          .feature-item {
+            padding: 12px;
+          }
+
+          .glass-card {
+            padding: 22px 18px;
+          }
+
+          .form-scroll-container {
+            max-height: none;
+          }
+
+          .global-theme-toggle {
+            top: 14px;
+            right: 14px;
+            padding: 8px 12px;
+            font-size: 12px;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .auth-container {
+            border-radius: 20px;
+          }
+
+          .brand-title {
+            font-size: 28px;
+          }
+
+          .brand-accent {
+            height: 32px;
+          }
+
+          .auth-left {
+            padding-bottom: 8px;
+          }
+
+          .timisoara-skyline {
+            display: none;
+          }
+
+          .submit-button {
+            font-size: 14px;
           }
         }
       `}</style>
