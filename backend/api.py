@@ -94,7 +94,7 @@ def seed_events_if_empty():
     if events_col.count_documents({}) == 0:
         sample_events = [
             {
-                "title": "Concert Rock Arn TimiEToara",
+                "title": "Concert Rock Arn Timișoara",
                 "date": "2025-11-20",
                 "locationName": "Sala Capitol",
                 "latitude": 45.7542,
@@ -105,16 +105,16 @@ def seed_events_if_empty():
             {
                 "title": "Festival de teatru",
                 "date": "2025-11-22",
-                "locationName": "Teatrul NaE>ional TimiEToara",
+                "locationName": "Teatrul Național Timișoara",
                 "latitude": 45.7549,
                 "longitude": 21.2257,
                 "imageUrl": "https://via.placeholder.com/300x150?text=Teatru",
                 "createdAt": datetime.utcnow(),
             },
             {
-                "title": "TA�rg de Cr��ciun",
+                "title": "Târg de Crăciun",
                 "date": "2025-12-01",
-                "locationName": "PiaE>a Victoriei",
+                "locationName": "Piața Victoriei",
                 "latitude": 45.7537,
                 "longitude": 21.2253,
                 "imageUrl": "https://via.placeholder.com/300x150?text=Targ+de+Craciun",
