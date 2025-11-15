@@ -168,7 +168,7 @@ def login():
     password = data.get("password", "")
 
     if not email or not password:
-        return jsonify({"error": "Email ETi parola necesare"}), 400
+        return jsonify({"error": "Email si parola necesare"}), 400
 
     user = users_col.find_one({"email": email})
     if not user:
