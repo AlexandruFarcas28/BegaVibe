@@ -139,24 +139,43 @@ function MainScreen({ theme, onToggleTheme }) {
     }
   }, [selectedEvent]);
 
-  // ✅ geolocație cu precizie maximă permisă de browser
+  // MODIFICAT: geolocație cu fallback la precizie scăzută
   useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const { latitude, longitude } = pos.coords;
-          setUserLocation({ latitude, longitude });
-        },
-        (error) => {
-          console.warn('Nu s-a putut obține locația utilizatorului:', error);
-        },
-        {
-          enableHighAccuracy: true, // cere GPS / cea mai bună sursă
-          timeout: 15000,           // până la 15 secunde pentru lock GPS
-          maximumAge: 0,            // nu folosi poziții vechi din cache
-        }
-      );
+    if (!navigator.geolocation) {
+      console.warn('Geolocația nu este suportată în acest browser.');
+      return;
     }
+
+    const handleSuccess = (pos) => {
+      const { latitude, longitude } = pos.coords;
+      setUserLocation({ latitude, longitude });
+    };
+
+    const handleError = (error) => {
+      console.warn('Nu s-a putut obține locația (high-accuracy):', error.message);
+      // Dacă a eșuat high-accuracy (ex. timeout), încercăm low-accuracy
+      if (error.code === error.TIMEOUT) {
+        console.log('Încercăm fallback la low-accuracy...');
+        navigator.geolocation.getCurrentPosition(
+          handleSuccess,
+          (lowAccError) => {
+            console.warn('Eroare și la low-accuracy:', lowAccError.message);
+          },
+          {
+            enableHighAccuracy: false, // Cerem precizie scăzută
+            timeout: 10000,
+            maximumAge: 60000, // Acceptăm o locație de acum 1 minut
+          }
+        );
+      }
+    };
+
+    // 1. Încercăm high-accuracy mai întâi
+    navigator.geolocation.getCurrentPosition(handleSuccess, handleError, {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+    });
   }, []);
 
   const filteredEvents = events.filter((event) => {
@@ -192,24 +211,82 @@ function MainScreen({ theme, onToggleTheme }) {
     }
   };
 
-  // ✅ origin = locația curentă extrem de precisă (dacă userul a permis)
+  // MODIFICAT: CEA MAI PRECISĂ VARIANTĂ POSIBILĂ PENTRU DIRECȚII (cu fallback)
   const handleGetDirections = (event) => {
     if (!event) return;
+
     const destination = encodeURIComponent(event.locationName);
 
-    let url;
-    if (userLocation) {
-      const origin = encodeURIComponent(
-        `${userLocation.latitude},${userLocation.longitude}`
-      );
-      url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`;
-    } else {
-      // fallback: doar destinația, dacă userul nu a permis locația
-      url = `https://www.google.com/maps/dir/?api=1&destination=${destination}`;
+    const openGoogleMaps = (originCoords) => {
+      let url;
+      if (originCoords) {
+        const origin = encodeURIComponent(
+          `${originCoords.latitude},${originCoords.longitude}`
+        );
+        url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
+      } else {
+        // fallback: fără origin, lasă Google să detecteze
+        url = `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`;
+      }
+      window.open(url, '_blank');
+    };
+
+    // dacă avem deja ceva în state, îl folosim ca fallback
+    const fallbackCoords = userLocation
+      ? { latitude: userLocation.latitude, longitude: userLocation.longitude }
+      : null;
+
+    if (!navigator.geolocation) {
+      console.warn('Geolocația nu este suportată în acest browser.');
+      openGoogleMaps(fallbackCoords);
+      return;
     }
 
-    window.open(url, '_blank');
+    // Funcția de succes
+    const handleSuccess = (pos) => {
+      const { latitude, longitude, accuracy } = pos.coords;
+      console.log('Locație obținută pentru direcții:', {
+        latitude,
+        longitude,
+        accuracy,
+      });
+      openGoogleMaps({ latitude, longitude });
+    };
+
+    // Funcția de eroare
+    const handleError = (error) => {
+      console.warn('Eroare la obținerea locației high-accuracy pentru direcții:', error.message);
+      
+      // Dacă a fost timeout, încercăm low-accuracy
+      if (error.code === error.TIMEOUT) {
+        console.log('Încercăm low-accuracy fallback pentru direcții...');
+        navigator.geolocation.getCurrentPosition(
+          handleSuccess,
+          (lowAccError) => {
+            // A eșuat și low-accuracy, folosim fallback-ul (poate fi null)
+            console.warn('Eroare finală la obținerea locației:', lowAccError);
+            openGoogleMaps(fallbackCoords);
+          },
+          {
+            enableHighAccuracy: false, // Cerem locație rapidă
+            timeout: 10000, 
+            maximumAge: 60000,
+          }
+        );
+      } else {
+        // Altă eroare (ex. Permisiune refuzată), folosim direct fallback
+        openGoogleMaps(fallbackCoords);
+      }
+    };
+
+    // 1. Încercăm high-accuracy (GPS)
+    navigator.geolocation.getCurrentPosition(handleSuccess, handleError, {
+      enableHighAccuracy: true,
+      timeout: 12000, // 12 secunde pentru o acțiune a utilizatorului
+      maximumAge: 0,
+    });
   };
+
 
   const handleOpenTickets = (event) => {
     setSelectedEvent(event);
@@ -644,7 +721,7 @@ function MainScreen({ theme, onToggleTheme }) {
         </div>
       )}
 
-      {/* CSS (la fel ca înainte, cu modificările pentru hartă mai mare și layout hartă) */}
+      {/* CSS */}
       <style>{`
         * {
           margin: 0;
