@@ -124,7 +124,7 @@ def seed_events_if_empty():
         events_col.insert_many(sample_events)
 
 
-@app.before_first_request
+@app.before_request
 def init_db():
     # poE>i pune index-uri aici dac�� vrei (ex. email unic)
     users_col.create_index("email", unique=True)
