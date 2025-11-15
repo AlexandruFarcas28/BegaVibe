@@ -1,6 +1,8 @@
 // src/components/MainScreen.jsx
 import React, { useState, useEffect, useRef } from 'react';
 
+const API_BASE_URL = 'http://127.0.0.1:5000';
+
 // ====================== MOCK DATA ======================
 const MOCK_EVENTS = [
   {
@@ -760,8 +762,12 @@ function MainScreen({ theme, onToggleTheme }) {
         }
 
         .header-content {
-          max-width: 1200px;
+          max-width: none;
+          width: 100%;
           margin: 0 auto;
+          padding-left: 24px;
+          padding-right: 24px;
+          box-sizing: border-box;
         }
 
         .header-top {
@@ -874,7 +880,7 @@ function MainScreen({ theme, onToggleTheme }) {
           font-size: 13px;
           color: #9ca3af;
           margin-top: 4px;
-          max-width: 540px;
+          max-width: 900px;
         }
 
         .app.light .header-subtitle {
