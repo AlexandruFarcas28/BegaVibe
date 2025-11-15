@@ -28,10 +28,9 @@ if not MONGO_URI:
 client = MongoClient(MONGO_URI)
 db = client[MONGO_DB_NAME]
 
-# SCHIMBAT: Colecțiile users_col și organizers_col
-users = db["users"] # SCHIMBAT: De la users_col la users
+users_col = db["users"]
 events_col = db["events"]
-organizers = db["organizers"] # NOU & SCHIMBAT: De la organizers_col la organizers
+tickets_col = db["tickets"]
 
 
 # ----------------- JWT CONFIG -----------------
@@ -41,15 +40,17 @@ JWT_ALGORITHM = "HS256"
 JWT_EXP_DAYS = int(os.getenv("JWT_EXP_DAYS", "7"))
 
 
-# MODIFICAT: Adaugă rolul ('user' sau 'organizer') în payload-ul JWT
+def get_user_role(user):
+    """Returnează rolul utilizatorului ('user' sau 'organizer')."""
+    return user.get("role") or "user"
+
+
 def create_jwt_token(user):
-    # Daca documentul user are 'role', il folosim; altfel, presupunem 'user'
-    role = user.get("role", "user") 
-    
+    role = get_user_role(user)
     payload = {
         "user_id": str(user["_id"]),
         "email": user["email"],
-        "role": role,  # NOU: Rolul în token
+        "role": role,
         "exp": datetime.utcnow() + timedelta(days=JWT_EXP_DAYS),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
@@ -59,7 +60,6 @@ def decode_jwt_token(token):
     return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
 
 
-# MODIFICAT: Actualizeaza jwt_required pentru a cauta in ambele colectii (users si organizers)
 def jwt_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -77,8 +77,6 @@ def jwt_required(f):
             return jsonify({"error": "Token invalid"}), 401
 
         user_id = payload.get("user_id")
-        user_role = payload.get("role", "user") # Extrage rolul
-        
         if not user_id:
             return jsonify({"error": "Token fara utilizator"}), 401
 
@@ -86,7 +84,503 @@ def jwt_required(f):
             user_obj_id = ObjectId(user_id)
         except Exception:
             return jsonify({"error": "Token invalid"}), 401
-        
-        # Caută utilizatorul în colecția corespunzătoare rolului din token
-if __name__ == "__main__":            
+
+        user = users_col.find_one({"_id": user_obj_id})
+        if not user:
+            return jsonify({"error": "Utilizator inexistent"}), 401
+
+        g.current_user = user
+        return f(*args, **kwargs)
+
+    return wrapper
+
+
+# ----------------- UTILS -----------------
+
+
+def event_to_json(e):
+    """Transformă un document de eveniment într-un dict JSON serializabil."""
+    return {
+        "id": str(e["_id"]),
+        "title": e.get("title"),
+        "date": e.get("date"),
+        "locationName": e.get("locationName"),
+        "latitude": e.get("latitude"),
+        "longitude": e.get("longitude"),
+        "imageUrl": e.get("imageUrl"),
+        "category": e.get("category"),
+        "price": e.get("price"),
+        "minAge": e.get("minAge"),
+        "status": e.get("status"),
+        "ownerId": str(e["ownerId"]) if e.get("ownerId") else None,
+    }
+
+
+# ----------------- SEED EVENTS -----------------
+
+
+def seed_events_if_empty():
+    if events_col.count_documents({}) == 0:
+        sample_events = [
+            {
+                "title": "Concert Rock în Timișoara",
+                "date": "2025-11-20",
+                "locationName": "Sala Capitol",
+                "latitude": 45.7542,
+                "longitude": 21.2272,
+                "imageUrl": "https://via.placeholder.com/300x150?text=Concert",
+                "status": "published",
+                "createdAt": datetime.utcnow(),
+            },
+            {
+                "title": "Festival de teatru",
+                "date": "2025-11-22",
+                "locationName": "Teatrul Național Timișoara",
+                "latitude": 45.7549,
+                "longitude": 21.2257,
+                "imageUrl": "https://via.placeholder.com/300x150?text=Teatru",
+                "status": "published",
+                "createdAt": datetime.utcnow(),
+            },
+            {
+                "title": "Târg de Crăciun",
+                "date": "2025-12-01",
+                "locationName": "Piața Victoriei",
+                "latitude": 45.7537,
+                "longitude": 21.2253,
+                "imageUrl": "https://via.placeholder.com/300x150?text=Targ+de+Craciun",
+                "status": "published",
+                "createdAt": datetime.utcnow(),
+            },
+        ]
+        events_col.insert_many(sample_events)
+
+
+@app.before_request
+def init_db():
+    users_col.create_index("email", unique=True)
+    seed_events_if_empty()
+
+
+# ----------------- API AUTH -----------------
+
+
+@app.post("/api/register")
+def register():
+    data = request.get_json() or {}
+    email = data.get("email", "").strip().lower()
+    password = data.get("password", "")
+
+    if not email or not password:
+        return jsonify({"error": "Email si parola necesare"}), 400
+
+    if users_col.find_one({"email": email}):
+        return jsonify({"error": "Email deja folosit"}), 400
+
+    password_hash = bcrypt.generate_password_hash(password).decode("utf-8")
+
+    result = users_col.insert_one(
+        {
+            "email": email,
+            "passwordHash": password_hash,
+            "role": "user",
+            "createdAt": datetime.utcnow(),
+        }
+    )
+
+    user = users_col.find_one({"_id": result.inserted_id})
+    token = create_jwt_token(user)
+
+    return jsonify({"message": "Cont creat cu succes", "token": token}), 201
+
+
+@app.post("/api/login")
+def login():
+    data = request.get_json() or {}
+    email = data.get("email", "").strip().lower()
+    password = data.get("password", "")
+
+    if not email or not password:
+        return jsonify({"error": "Email si parola necesare"}), 400
+
+    user = users_col.find_one({"email": email})
+    if not user:
+        return jsonify({"error": "Email sau parola gresite"}), 401
+
+    if not bcrypt.check_password_hash(user["passwordHash"], password):
+        return jsonify({"error": "Email sau parola gresite"}), 401
+
+    token = create_jwt_token(user)
+
+    return jsonify({"message": "Autentificare reusita", "token": token}), 200
+
+
+@app.get("/api/me")
+@jwt_required
+def get_me():
+    user = g.current_user
+    role = get_user_role(user)
+    return (
+        jsonify(
+            {
+                "id": str(user["_id"]),
+                "email": user.get("email"),
+                "role": role,
+                "createdAt": user.get("createdAt").isoformat()
+                if isinstance(user.get("createdAt"), datetime)
+                else None,
+            }
+        ),
+        200,
+    )
+
+
+@app.post("/api/organizers/register")
+def register_organizer():
+    data = request.get_json() or {}
+    email = data.get("email", "").strip().lower()
+    password = data.get("password", "")
+    org_name = (data.get("orgName") or "").strip()
+    phone = (data.get("phone") or "").strip()
+    website = (data.get("website") or "").strip()
+    description = (data.get("description") or "").strip()
+
+    if not email or not password or not org_name:
+        return jsonify({"error": "Email, parola si numele organizatorului sunt necesare"}), 400
+
+    if users_col.find_one({"email": email}):
+        return jsonify({"error": "Email deja folosit"}), 400
+
+    password_hash = bcrypt.generate_password_hash(password).decode("utf-8")
+
+    organizer_profile = {
+        "name": org_name,
+        "phone": phone or None,
+        "website": website or None,
+        "description": description or None,
+        "createdAt": datetime.utcnow(),
+    }
+
+    result = users_col.insert_one(
+        {
+            "email": email,
+            "passwordHash": password_hash,
+            "role": "organizer",
+            "organizerProfile": organizer_profile,
+            "createdAt": datetime.utcnow(),
+        }
+    )
+
+    user = users_col.find_one({"_id": result.inserted_id})
+    token = create_jwt_token(user)
+
+    return jsonify({"message": "Cont organizator creat cu succes", "token": token}), 201
+
+
+@app.get("/api/organizers/me")
+@jwt_required
+def get_organizer_me():
+    user = g.current_user
+    if get_user_role(user) != "organizer":
+        return jsonify({"error": "Doar organizatorii au acces la acest endpoint"}), 403
+
+    profile = user.get("organizerProfile") or {}
+    profile_out = dict(profile)
+    created_at = profile_out.get("createdAt")
+    if isinstance(created_at, datetime):
+        profile_out["createdAt"] = created_at.isoformat()
+
+    return (
+        jsonify(
+            {
+                "id": str(user["_id"]),
+                "email": user.get("email"),
+                "role": "organizer",
+                "organizerProfile": profile_out,
+            }
+        ),
+        200,
+    )
+
+
+# ----------------- API EVENIMENTE -----------------
+
+
+@app.get("/api/events")
+def get_events():
+    docs = list(events_col.find({}))
+    result = [event_to_json(e) for e in docs]
+    return jsonify(result), 200
+
+
+@app.get("/api/events/<event_id>")
+def get_event(event_id):
+    try:
+        obj_id = ObjectId(event_id)
+    except Exception:
+        return jsonify({"error": "ID eveniment invalid"}), 400
+
+    event = events_col.find_one({"_id": obj_id})
+    if not event:
+        return jsonify({"error": "Eveniment inexistent"}), 404
+
+    return jsonify(event_to_json(event)), 200
+
+
+@app.post("/api/events")
+def create_event():
+    data = request.get_json() or {}
+
+    title = (data.get("title") or "").strip()
+    date = (data.get("date") or "").strip()
+    location_name = (data.get("locationName") or "").strip()
+
+    if not title or not date or not location_name:
+        return (
+            jsonify(
+                {
+                    "error": "Campurile 'title', 'date' si 'locationName' sunt obligatorii",
+                }
+            ),
+            400,
+        )
+
+    event_doc = {
+        "title": title,
+        "date": date,
+        "locationName": location_name,
+        "imageUrl": data.get("imageUrl"),
+        "category": data.get("category"),
+        "price": data.get("price"),
+        "minAge": data.get("minAge"),
+        "latitude": data.get("latitude"),
+        "longitude": data.get("longitude"),
+        "status": data.get("status") or "published",
+        "createdAt": datetime.utcnow(),
+    }
+
+    result = events_col.insert_one(event_doc)
+    event_doc["_id"] = result.inserted_id
+
+    return jsonify(event_to_json(event_doc)), 201
+
+
+@app.get("/api/organizers/me/events")
+@jwt_required
+def get_my_events():
+    user = g.current_user
+    if get_user_role(user) != "organizer":
+        return jsonify({"error": "Doar organizatorii au acces la acest endpoint"}), 403
+
+    docs = list(events_col.find({"ownerId": user["_id"]}))
+    result = [event_to_json(e) for e in docs]
+    return jsonify(result), 200
+
+
+@app.post("/api/organizers/me/events")
+@jwt_required
+def create_my_event():
+    user = g.current_user
+    if get_user_role(user) != "organizer":
+        return jsonify({"error": "Doar organizatorii pot crea evenimente"}), 403
+
+    data = request.get_json() or {}
+    title = (data.get("title") or "").strip()
+    date = (data.get("date") or "").strip()
+    location_name = (data.get("locationName") or "").strip()
+
+    if not title or not date or not location_name:
+        return (
+            jsonify(
+                {
+                    "error": "Campurile 'title', 'date' si 'locationName' sunt obligatorii",
+                }
+            ),
+            400,
+        )
+
+    event_doc = {
+        "title": title,
+        "date": date,
+        "locationName": location_name,
+        "imageUrl": data.get("imageUrl"),
+        "category": data.get("category"),
+        "price": data.get("price"),
+        "minAge": data.get("minAge"),
+        "latitude": data.get("latitude"),
+        "longitude": data.get("longitude"),
+        "status": data.get("status") or "draft",
+        "ownerId": user["_id"],
+        "createdAt": datetime.utcnow(),
+    }
+
+    result = events_col.insert_one(event_doc)
+    event_doc["_id"] = result.inserted_id
+
+    return jsonify(event_to_json(event_doc)), 201
+
+
+@app.patch("/api/events/<event_id>")
+@jwt_required
+def update_event(event_id):
+    user = g.current_user
+    if get_user_role(user) != "organizer":
+        return jsonify({"error": "Doar organizatorii pot modifica evenimente"}), 403
+
+    try:
+        obj_id = ObjectId(event_id)
+    except Exception:
+        return jsonify({"error": "ID eveniment invalid"}), 400
+
+    event = events_col.find_one({"_id": obj_id})
+    if not event:
+        return jsonify({"error": "Eveniment inexistent"}), 404
+
+    owner_id = event.get("ownerId")
+    if owner_id is not None and owner_id != user["_id"]:
+        return jsonify({"error": "Nu ai permisiunea sa modifici acest eveniment"}), 403
+
+    data = request.get_json() or {}
+
+    allowed_fields = [
+        "title",
+        "date",
+        "locationName",
+        "imageUrl",
+        "category",
+        "price",
+        "minAge",
+        "status",
+        "latitude",
+        "longitude",
+    ]
+
+    update_fields = {}
+    for field in allowed_fields:
+        if field in data:
+            update_fields[field] = data[field]
+
+    if not update_fields:
+        return jsonify({"error": "Nimic de actualizat"}), 400
+
+    events_col.update_one({"_id": obj_id}, {"$set": update_fields})
+    updated = events_col.find_one({"_id": obj_id})
+
+    return jsonify(event_to_json(updated)), 200
+
+
+@app.delete("/api/events/<event_id>")
+@jwt_required
+def delete_event(event_id):
+    user = g.current_user
+    if get_user_role(user) != "organizer":
+        return jsonify({"error": "Doar organizatorii pot sterge evenimente"}), 403
+
+    try:
+        obj_id = ObjectId(event_id)
+    except Exception:
+        return jsonify({"error": "ID eveniment invalid"}), 400
+
+    event = events_col.find_one({"_id": obj_id})
+    if not event:
+        return jsonify({"error": "Eveniment inexistent"}), 404
+
+    owner_id = event.get("ownerId")
+    if owner_id is not None and owner_id != user["_id"]:
+        return jsonify({"error": "Nu ai permisiunea sa stergi acest eveniment"}), 403
+
+    events_col.delete_one({"_id": obj_id})
+    return jsonify({"message": "Eveniment sters"}), 200
+
+
+# ----------------- API BILETE -----------------
+
+
+@app.post("/api/tickets")
+@jwt_required
+def create_ticket():
+    user = g.current_user
+    data = request.get_json() or {}
+
+    event_id = (data.get("eventId") or "").strip()
+    count_raw = data.get("count", 1)
+
+    try:
+        event_obj_id = ObjectId(event_id)
+    except Exception:
+        return jsonify({"error": "ID eveniment invalid"}), 400
+
+    event = events_col.find_one({"_id": event_obj_id})
+    if not event:
+        return jsonify({"error": "Eveniment inexistent"}), 404
+
+    try:
+        count = int(count_raw)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Count invalid"}), 400
+
+    if count <= 0:
+        return jsonify({"error": "Count trebuie sa fie pozitiv"}), 400
+
+    ticket_doc = {
+        "userId": user["_id"],
+        "eventId": event_obj_id,
+        "count": count,
+        "createdAt": datetime.utcnow(),
+    }
+
+    result = tickets_col.insert_one(ticket_doc)
+    ticket_doc["_id"] = result.inserted_id
+
+    return (
+        jsonify(
+            {
+                "id": str(ticket_doc["_id"]),
+                "eventId": str(ticket_doc["eventId"]),
+                "count": ticket_doc["count"],
+                "createdAt": ticket_doc["createdAt"].isoformat(),
+            }
+        ),
+        201,
+    )
+
+
+@app.get("/api/my-tickets")
+@jwt_required
+def get_my_tickets():
+    user = g.current_user
+    user_id = user["_id"]
+
+    tickets = list(tickets_col.find({"userId": user_id}))
+    event_ids = {t["eventId"] for t in tickets if t.get("eventId")}
+
+    events_map = {}
+    if event_ids:
+        events = events_col.find({"_id": {"$in": list(event_ids)}})
+        for e in events:
+            events_map[e["_id"]] = e
+
+    result = []
+    for t in tickets:
+        ev = events_map.get(t.get("eventId"))
+        created_at = t.get("createdAt")
+        result.append(
+            {
+                "id": str(t["_id"]),
+                "eventId": str(t["eventId"]) if t.get("eventId") else None,
+                "count": t.get("count"),
+                "createdAt": created_at.isoformat()
+                if isinstance(created_at, datetime)
+                else None,
+                "eventTitle": ev.get("title") if ev else None,
+                "eventDate": ev.get("date") if ev else None,
+                "eventLocationName": ev.get("locationName") if ev else None,
+            }
+        )
+
+    return jsonify(result), 200
+
+
+if __name__ == "__main__":
     app.run(debug=True)
+
