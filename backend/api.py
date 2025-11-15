@@ -126,7 +126,6 @@ def seed_events_if_empty():
 
 @app.before_request
 def init_db():
-    # poE>i pune index-uri aici dac�� vrei (ex. email unic)
     users_col.create_index("email", unique=True)
     seed_events_if_empty()
 
@@ -141,7 +140,7 @@ def register():
     password = data.get("password", "")
 
     if not email or not password:
-        return jsonify({"error": "Email ETi parol�� necesare"}), 400
+        return jsonify({"error": "Email si parola necesare"}), 400
 
     if users_col.find_one({"email": email}):
         return jsonify({"error": "Email deja folosit"}), 400
@@ -169,18 +168,18 @@ def login():
     password = data.get("password", "")
 
     if not email or not password:
-        return jsonify({"error": "Email ETi parol�� necesare"}), 400
+        return jsonify({"error": "Email ETi parola necesare"}), 400
 
     user = users_col.find_one({"email": email})
     if not user:
-        return jsonify({"error": "Email sau parol�� greETite"}), 401
+        return jsonify({"error": "Email sau parola gresite"}), 401
 
     if not bcrypt.check_password_hash(user["passwordHash"], password):
-        return jsonify({"error": "Email sau parol�� greETite"}), 401
+        return jsonify({"error": "Email sau parola gresite"}), 401
 
     token = create_jwt_token(user)
 
-    return jsonify({"message": "Autentificare reuETit��", "token": token}), 200
+    return jsonify({"message": "Autentificare reusita", "token": token}), 200
 
 
 @app.get("/api/me")
