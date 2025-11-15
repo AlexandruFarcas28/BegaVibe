@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 
+const API_BASE_URL = 'http://127.0.0.1:5000';
+
 // ====================== MOCK DATA ======================
 const MOCK_EVENTS = [
   {

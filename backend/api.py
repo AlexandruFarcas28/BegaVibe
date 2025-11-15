@@ -217,9 +217,65 @@ def get_events():
                 "latitude": e.get("latitude"),
                 "longitude": e.get("longitude"),
                 "imageUrl": e.get("imageUrl"),
+                "category": e.get("category"),
+                "price": e.get("price"),
+                "minAge": e.get("minAge"),
             }
         )
     return jsonify(result), 200
+
+
+@app.post("/api/events")
+def create_event():
+    data = request.get_json() or {}
+
+    title = (data.get("title") or "").strip()
+    date = (data.get("date") or "").strip()
+    location_name = (data.get("locationName") or "").strip()
+
+    if not title or not date or not location_name:
+        return (
+            jsonify(
+                {
+                    "error": "Campurile 'title', 'date' si 'locationName' sunt obligatorii",
+                }
+            ),
+            400,
+        )
+
+    event_doc = {
+        "title": title,
+        "date": date,
+        "locationName": location_name,
+        "imageUrl": data.get("imageUrl"),
+        "category": data.get("category"),
+        "price": data.get("price"),
+        "minAge": data.get("minAge"),
+        "latitude": data.get("latitude"),
+        "longitude": data.get("longitude"),
+        "createdAt": datetime.utcnow(),
+    }
+
+    result = events_col.insert_one(event_doc)
+    event_doc["_id"] = result.inserted_id
+
+    return (
+        jsonify(
+            {
+                "id": str(event_doc["_id"]),
+                "title": event_doc["title"],
+                "date": event_doc["date"],
+                "locationName": event_doc["locationName"],
+                "imageUrl": event_doc.get("imageUrl"),
+                "category": event_doc.get("category"),
+                "price": event_doc.get("price"),
+                "minAge": event_doc.get("minAge"),
+                "latitude": event_doc.get("latitude"),
+                "longitude": event_doc.get("longitude"),
+            }
+        ),
+        201,
+    )
 
 
 if __name__ == "__main__":
