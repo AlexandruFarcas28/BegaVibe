@@ -42,6 +42,8 @@ except Exception as e:
     print(f"⚠️ Error initializing Gemini Client: {e}")
     # Set to None if initialization fails to prevent crashes later
     gemini_client = None
+
+
 # ----------------- JWT CONFIG -----------------
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
@@ -282,7 +284,7 @@ def update_me():
     users_col.update_one({"_id": user["_id"]}, {"$set": updates})
     updated_user = users_col.find_one({"_id": user["_id"]})
 
-    # dac�� s-a schimbat email-ul sau parola, gener��m un nou token
+    # dacă s-a schimbat email-ul sau parola, generăm un nou token
     new_token = create_jwt_token(updated_user)
     role = get_user_role(updated_user)
 
@@ -377,8 +379,8 @@ def get_organizer_me():
 @jwt_required
 def update_organizer_me():
     """
-    Actualizeaz�� profilul de organizator al utilizatorului curent.
-    Body JSON acceptat (toate cA�mpurile opE>ionale):
+    Actualizează profilul de organizator al utilizatorului curent.
+    Body JSON acceptat (toate câmpurile opționale):
       - orgName: string
       - phone: string
       - website: string
@@ -419,7 +421,7 @@ def update_organizer_me():
         {"$set": {"organizerProfile": profile}},
     )
 
-    # refacem user-ul pentru r��spuns consecvent
+    # refacem user-ul pentru răspuns consecvent
     updated = users_col.find_one({"_id": user["_id"]})
     profile_out = dict(updated.get("organizerProfile") or {})
     created_at = profile_out.get("createdAt")
