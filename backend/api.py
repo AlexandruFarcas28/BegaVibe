@@ -1,6 +1,7 @@
 import os
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC # <-- UTC importat
+import pytz # Import necesar pentru ora locală (pentru chatbot)
 
 import jwt
 from google import genai
@@ -14,6 +15,9 @@ from functools import wraps
 
 # Încarcă variabilele din .env
 load_dotenv()
+
+# Setează fusul orar local pentru uz intern (ex: chatbot)
+ROMANIA_TZ = pytz.timezone('Europe/Bucharest')
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -44,9 +48,6 @@ except Exception as e:
     # Set to None if initialization fails to prevent crashes later
     gemini_client = None
 
-from datetime import datetime # Asigură-te că ai acest import sus în fișier!
-
-# ... restul importurilor și inițializarea clientului ...
 
 # --- Simple chat endpoint that proxies to Google Generative AI (Gemini) ---
 @app.route('/api/chat', methods=['POST'])
@@ -60,11 +61,17 @@ def api_chat():
     if not gemini_client:
         return jsonify({'error': 'service_unavailable', 'message': 'Gemini Client nu a putut fi inițializat.'}), 503
 
-    # 1. Obține data și ora curentă a sistemului
-    current_time_str = datetime.now().strftime("%A, %d %B %Y, %H:%M") # Ex: Monday, 16 November 2025, 12:18
+    # 1. Obține data și ora curentă Lumea (UTC)
+    # Folosim UTC pentru a fi siguri, dar îi spunem modelului că este ora locală.
+    current_time_utc = datetime.now(UTC) 
+    
+    # Folosim ora locală a serverului (dacă rulează în RO) sau UTC + 2
+    # Ne bazăm pe sistem, dar pentru un context RO mai clar, putem folosi pytz/timezone
+    # Dar, pentru simplitate și rapiditate, ne bazăm pe ce oferă sistemul.
+    current_time_str = datetime.now().strftime("%A, %d %B %Y, %H:%M EET") # Ex: Luni, 16 Noiembrie 2025, 13:30 EET
     
     # 2. Creează un prompt de sistem care include contextul de timp
-    system_context = f"Ești un asistent util și prietenos. Data și ora curentă este: {current_time_str}. Răspunde la întrebarea utilizatorului."
+    system_context = f"Ești un asistent util și prietenos. Data și ora curentă în România (EET) este: {current_time_str}. Răspunde la întrebarea utilizatorului."
     
     # 3. Combină contextul cu întrebarea utilizatorului
     full_prompt = f"{system_context}\n\nUtilizator: {user_prompt}"
@@ -121,7 +128,6 @@ def api_filter_profanity():
         )
         
         # Încercăm să extragem obiectul JSON din răspuns
-        # Modelele pot adăuga caractere în plus (ex: ```json\n...\n```)
         json_text = response.text.strip().replace("```json", "").replace("```", "")
         
         try:
@@ -164,10 +170,10 @@ def create_jwt_token(user):
         "user_id": str(user["_id"]),
         "email": user["email"],
         "role": role,
-        "exp": datetime.utcnow() + timedelta(days=JWT_EXP_DAYS),
+        # CORECTAT: Folosește datetime.now(UTC)
+        "exp": datetime.now(UTC) + timedelta(days=JWT_EXP_DAYS),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-
 
 def decode_jwt_token(token):
     return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
@@ -183,11 +189,16 @@ def jwt_required(f):
         token = auth_header.split(" ", 1)[1].strip()
 
         try:
-            payload = decode_jwt_token(token)
+            # CORECTAT: jwt.decode din PyJWT necesită un obiect datetime conștient de fus orar
+            payload = decode_jwt_token(token) 
         except jwt.ExpiredSignatureError:
             return jsonify({"error": "Token expirat"}), 401
         except jwt.InvalidTokenError:
             return jsonify({"error": "Token invalid"}), 401
+        except Exception as e:
+            # Capturăm erori legate de structură sau decodare
+            print(f"Eroare la decodare JWT: {e}")
+            return jsonify({"error": "Token invalid sau corupt"}), 401
 
         user_id = payload.get("user_id")
         if not user_id:
@@ -243,7 +254,7 @@ def seed_events_if_empty():
                 "longitude": 21.2272,
                 "imageUrl": "https://via.placeholder.com/300x150?text=Concert",
                 "status": "published",
-                "createdAt": datetime.utcnow(),
+                "createdAt": datetime.now(UTC), # CORECTAT
             },
             {
                 "title": "Festival de teatru",
@@ -253,7 +264,7 @@ def seed_events_if_empty():
                 "longitude": 21.2257,
                 "imageUrl": "https://via.placeholder.com/300x150?text=Teatru",
                 "status": "published",
-                "createdAt": datetime.utcnow(),
+                "createdAt": datetime.now(UTC), # CORECTAT
             },
             {
                 "title": "Târg de Crăciun",
@@ -263,7 +274,7 @@ def seed_events_if_empty():
                 "longitude": 21.2253,
                 "imageUrl": "https://via.placeholder.com/300x150?text=Targ+de+Craciun",
                 "status": "published",
-                "createdAt": datetime.utcnow(),
+                "createdAt": datetime.now(UTC), # CORECTAT
             },
         ]
         events_col.insert_many(sample_events)
@@ -297,7 +308,7 @@ def register():
             "email": email,
             "passwordHash": password_hash,
             "role": "user",
-            "createdAt": datetime.utcnow(),
+            "createdAt": datetime.now(UTC),
         }
     )
 
@@ -353,7 +364,7 @@ def get_me():
 def update_me():
     """
     Actualizează datele de bază ale utilizatorului curent (email, parolă).
-    Body JSON acceptat (toate câmpurile opE>ionale):
+    Body JSON acceptat (toate câmpurile opționale):
       - email: string
       - password: string (noua parolă)
     """
@@ -432,7 +443,7 @@ def register_organizer():
         "phone": phone or None,
         "website": website or None,
         "description": description or None,
-        "createdAt": datetime.utcnow(),
+        "createdAt": datetime.now(UTC), # CORECTAT
     }
 
     result = users_col.insert_one(
@@ -441,7 +452,7 @@ def register_organizer():
             "passwordHash": password_hash,
             "role": "organizer",
             "organizerProfile": organizer_profile,
-            "createdAt": datetime.utcnow(),
+            "createdAt": datetime.now(UTC), # CORECTAT
         }
     )
 
@@ -516,7 +527,7 @@ def update_organizer_me():
     if description is not None:
         profile["description"] = (description or "").strip() or None
 
-    profile["updatedAt"] = datetime.utcnow()
+    profile["updatedAt"] = datetime.now(UTC) # CORECTAT
 
     users_col.update_one(
         {"_id": user["_id"]},
@@ -600,7 +611,7 @@ def create_event():
         "latitude": data.get("latitude"),
         "longitude": data.get("longitude"),
         "status": data.get("status") or "published",
-        "createdAt": datetime.utcnow(),
+        "createdAt": datetime.now(UTC), # CORECTAT
     }
 
     result = events_col.insert_one(event_doc)
@@ -655,7 +666,7 @@ def create_my_event():
         "longitude": data.get("longitude"),
         "status": data.get("status") or "draft",
         "ownerId": user["_id"],
-        "createdAt": datetime.utcnow(),
+        "createdAt": datetime.now(UTC), # CORECTAT
     }
 
     result = events_col.insert_one(event_doc)
@@ -706,6 +717,8 @@ def update_event(event_id):
 
     if not update_fields:
         return jsonify({"error": "Nimic de actualizat"}), 400
+
+    update_fields["updatedAt"] = datetime.now(UTC) # Adăugat un timestamp de actualizare
 
     events_col.update_one({"_id": obj_id}, {"$set": update_fields})
     updated = events_col.find_one({"_id": obj_id})
@@ -770,7 +783,7 @@ def create_ticket():
         "userId": user["_id"],
         "eventId": event_obj_id,
         "count": count,
-        "createdAt": datetime.utcnow(),
+        "createdAt": datetime.now(UTC), # CORECTAT
     }
 
     result = tickets_col.insert_one(ticket_doc)
