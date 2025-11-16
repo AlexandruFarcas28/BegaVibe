@@ -43,54 +43,48 @@ except Exception as e:
     # Set to None if initialization fails to prevent crashes later
     gemini_client = None
 
+from datetime import datetime # Asigură-te că ai acest import sus în fișier!
+
+# ... restul importurilor și inițializarea clientului ...
+
 # --- Simple chat endpoint that proxies to Google Generative AI (Gemini) ---
 @app.route('/api/chat', methods=['POST'])
 def api_chat():
     data = request.get_json(silent=True) or {}
-    prompt = data.get('prompt') or data.get('message') or ''
-    if not prompt:
+    user_prompt = data.get('prompt') or data.get('message') or ''
+    
+    if not user_prompt:
         return jsonify({'error': 'empty_prompt'}), 400
 
-    gemini_key = os.getenv('GEMINI_API_KEY')
-    if not gemini_key:
-        return jsonify({'error': 'missing_gemini_key', 'message': 'Set GEMINI_API_KEY in .env'}), 500
+    if not gemini_client:
+        return jsonify({'error': 'service_unavailable', 'message': 'Gemini Client nu a putut fi inițializat.'}), 503
 
+    # 1. Obține data și ora curentă a sistemului
+    current_time_str = datetime.now().strftime("%A, %d %B %Y, %H:%M") # Ex: Monday, 16 November 2025, 12:18
+    
+    # 2. Creează un prompt de sistem care include contextul de timp
+    system_context = f"Ești un asistent util și prietenos. Data și ora curentă este: {current_time_str}. Răspunde la întrebarea utilizatorului."
+    
+    # 3. Combină contextul cu întrebarea utilizatorului
+    full_prompt = f"{system_context}\n\nUtilizator: {user_prompt}"
+
+    model_name = 'gemini-2.5-flash' 
+    
     try:
-        # Try to configure the genai client if available
-        try:
-            genai.configure(api_key=gemini_key)
-        except Exception:
-            pass
+        response = gemini_client.models.generate_content(
+            model=model_name,
+            contents=full_prompt, # Folosește promptul complet
+        )
 
-        reply_text = None
-        try:
-            # Preferred simple API if available
-            resp = genai.generate_text(model='chat-bison-001', prompt=prompt)
-            if isinstance(resp, str):
-                reply_text = resp
-            elif hasattr(resp, 'text'):
-                reply_text = resp.text
-            elif isinstance(resp, dict) and 'text' in resp:
-                reply_text = resp['text']
-            else:
-                reply_text = str(resp)
-        except Exception:
-            try:
-                model = genai.TextGenerationModel.from_pretrained('chat-bison-001')
-                out = model.generate(prompt)
-                if hasattr(out, 'text'):
-                    reply_text = out.text
-                elif isinstance(out, dict) and 'text' in out:
-                    reply_text = out['text']
-                else:
-                    reply_text = str(out)
-            except Exception as e:
-                return jsonify({'error': 'genai_error', 'details': str(e)}), 502
+        reply_text = response.text
 
-        return jsonify({'reply': reply_text})
+        return jsonify({'reply': reply_text}), 200
+        
     except Exception as e:
-        return jsonify({'error': 'server_error', 'details': str(e)}), 500
-
+        print(f"Gemini API Error: {e}")
+        return jsonify({'error': 'gemini_api_call_failed', 'details': str(e)}), 502
+    
+    
 # ----------------- JWT CONFIG -----------------
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
