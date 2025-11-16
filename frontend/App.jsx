@@ -10,6 +10,8 @@ function App() {
   const [role, setRole] = useState(null);
   const [theme, setTheme] = useState('dark');
   const [pendingOrganizerEmail, setPendingOrganizerEmail] = useState('');
+  const [authToken, setAuthToken] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
 
   // ================== HANDLERE GENERALE ==================
   const handleToggleTheme = () => {
@@ -20,15 +22,21 @@ function App() {
     // Înapoi la ecranul de login / register
     setRole(null);
     setPendingOrganizerEmail('');
+    setAuthToken(null);
+    setCurrentUser(null);
   };
 
   // ================== LOGIN / SIGNUP ==================
-  const handleUserLogin = () => {
+  const handleUserLogin = (token, user) => {
+    setAuthToken(token || null);
+    setCurrentUser(user || null);
     setRole('user');
   };
 
-  const handleOrganizerLogin = () => {
+  const handleOrganizerLogin = (token, user) => {
     // Organizator deja existent → direct în dashboard
+    setAuthToken(token || null);
+    setCurrentUser(user || null);
     setRole('organizer');
   };
 
@@ -47,6 +55,8 @@ function App() {
         theme={theme}
         onToggleTheme={handleToggleTheme}
         onLogout={handleLogoutToAuth} // butonul „Înapoi la login”
+        authToken={authToken}
+        currentUser={currentUser}
       />
     );
   }
@@ -59,6 +69,8 @@ function App() {
         onToggleTheme={handleToggleTheme}
         onLogout={handleLogoutToAuth} // ⬅ asta trebuie ca să meargă „Înapoi”
         email={pendingOrganizerEmail}
+        authToken={authToken}
+        currentUser={currentUser}
       />
     );
   }
@@ -70,6 +82,8 @@ function App() {
         theme={theme}
         onToggleTheme={handleToggleTheme}
         onLogout={handleLogoutToAuth}
+        authToken={authToken}
+        currentUser={currentUser}
       />
     );
   }
