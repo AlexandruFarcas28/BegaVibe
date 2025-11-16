@@ -1,6 +1,8 @@
 // src/pages/OrganizerDashboard.jsx
 import React, { useState, useEffect } from 'react';
 
+const API_BASE_URL = 'http://127.0.0.1:5000';
+
 const MOCK_ORG_EVENTS = [
   {
     id: '1',
@@ -41,8 +43,20 @@ const containsBannedWords = (value) => {
   return BANNED_WORDS.some((w) => lower.includes(w));
 };
 
-function OrganizerDashboard({ theme, onToggleTheme, onLogout }) {
-  const [events, setEvents] = useState(MOCK_ORG_EVENTS);
+const mapApiEventToUi = (apiEv) => ({
+  id: apiEv.id,
+  title: apiEv.title || '',
+  date: apiEv.date || '',
+  status: apiEv.status === 'published' ? 'Publicat' : 'AZn draft',
+  location: apiEv.locationName || '',
+  organizerName: '',
+  cui: '',
+  price: apiEv.price || '',
+  mapLink: '',
+});
+
+function OrganizerDashboard({ theme, onToggleTheme, onLogout, authToken, currentUser, email }) {
+  const [events, setEvents] = useState([]);
   const [newEvent, setNewEvent] = useState({
     title: '',
     date: '',

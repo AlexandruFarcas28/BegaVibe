@@ -1,11 +1,10 @@
 // src/pages/UserEventsPage.jsx
 import React from 'react';
-import MainScreen from '../components/MainScreen'; // dacă deja ai MainScreen
+import MainScreen from '../components/MainScreen';
 
-// Dacă deja ai definit MainScreen cu toată logica de evenimente și hartă,
-// poți să-l refolosești pur și simplu:
-function UserEventsPage({ theme, onToggleTheme, onLogout }) {
-  // ref + state for positioning the floating back button under the header CTA
+// Pagina pentru utilizatorii simpli care afiseaza lista de evenimente + harta
+function UserEventsPage({ theme, onToggleTheme, onLogout, authToken, currentUser }) {
+  // ref + state pentru pozitionarea butonului de "inapoi la login" sub CTA din header
   const backBtnRef = React.useRef(null);
   const [backBtnStyle, setBackBtnStyle] = React.useState({ top: 64, right: 80 });
 
@@ -17,15 +16,14 @@ function UserEventsPage({ theme, onToggleTheme, onLogout }) {
         const rect = cta.getBoundingClientRect();
         const btnRect = btn.getBoundingClientRect();
         const left = rect.left + rect.width / 2 - btnRect.width / 2;
-        const top = rect.bottom + 8; // small gap below CTA
+        const top = rect.bottom + 8; // mic gap sub CTA
         setBackBtnStyle({ left: Math.round(left), top: Math.round(top), zIndex: 1100 });
       } else {
-        // fallback to top-right if CTA not found
+        // fallback in coltul dreapta-sus daca CTA nu e gasit
         setBackBtnStyle({ top: 64, right: 80, zIndex: 1100 });
       }
     }
 
-    // run after a tick so elements have layout
     const t = setTimeout(updatePosition, 50);
     window.addEventListener('resize', updatePosition);
     window.addEventListener('scroll', updatePosition);
@@ -38,7 +36,7 @@ function UserEventsPage({ theme, onToggleTheme, onLogout }) {
 
   return (
     <>
-      {/* Poți adăuga un mic header cu logout */}
+      {/* Buton plutitor de "inapoi la login" */}
       <button
         ref={backBtnRef}
         style={{
@@ -57,12 +55,18 @@ function UserEventsPage({ theme, onToggleTheme, onLogout }) {
         }}
         onClick={onLogout}
       >
-        ⬅ Înapoi la login
+        ← Inapoi la login
       </button>
 
-      <MainScreen theme={theme} onToggleTheme={onToggleTheme} />
+      <MainScreen
+        theme={theme}
+        onToggleTheme={onToggleTheme}
+        authToken={authToken}
+        currentUser={currentUser}
+      />
     </>
   );
 }
 
 export default UserEventsPage;
+

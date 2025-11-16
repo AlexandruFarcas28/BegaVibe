@@ -106,7 +106,7 @@ const CATEGORIES = [
   'Sport',
 ];
 
-function MainScreen({ theme, onToggleTheme }) {
+function MainScreen({ theme, onToggleTheme, authToken, currentUser }) {
   const [events, setEvents] = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('Toate');
@@ -127,8 +127,52 @@ function MainScreen({ theme, onToggleTheme }) {
   const infoCardRef = useRef(null);
   const mapPanelRef = useRef(null);
 
+  // Incarcam evenimentele din backend; daca esueaza, folosim MOCK_EVENTS
   useEffect(() => {
-    setEvents(MOCK_EVENTS);
+    let isCancelled = false;
+
+    async function loadEvents() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/events`);
+        const data = await res.json().catch(() => []);
+
+        if (!res.ok) {
+          throw new Error(data.error || data.message || `Eroare ${res.status}`);
+        }
+
+        if (!Array.isArray(data) || data.length === 0) {
+          if (!isCancelled) {
+            setEvents(MOCK_EVENTS);
+          }
+          return;
+        }
+
+        if (!isCancelled) {
+          const mapped = data.map((ev) => ({
+            id: ev.id,
+            title: ev.title || '',
+            date: ev.date || '',
+            locationName: ev.locationName || '',
+            imageUrl: ev.imageUrl || '',
+            category: ev.category || 'Eveniment',
+            price: ev.price || 'Gratuit',
+            minAge: ev.minAge ?? null,
+          }));
+          setEvents(mapped);
+        }
+      } catch (err) {
+        console.warn('Nu s-au putut incarca evenimentele reale, folosim date mock.', err);
+        if (!isCancelled) {
+          setEvents(MOCK_EVENTS);
+        }
+      }
+    }
+
+    loadEvents();
+
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -291,6 +335,13 @@ function MainScreen({ theme, onToggleTheme }) {
 
 
   const handleOpenTickets = (event) => {
+    if (!authToken) {
+      alert(
+        'Pentru a rezerva bilete reale trebuie s�� fii autentificat cu un cont (nu ca invitat).'
+      );
+      return;
+    }
+
     setSelectedEvent(event);
     setTicketCount(1);
 
@@ -335,9 +386,48 @@ function MainScreen({ theme, onToggleTheme }) {
     setTicketModalOpen(true);
   };
 
-  const handleConfirmTickets = () => {
-    setTicketModalOpen(false);
-    alert('Biletele au fost rezervate! Vei primi detaliile pe email.');
+  const handleConfirmTickets = async () => {
+    if (!selectedEvent) {
+      setTicketModalOpen(false);
+      return;
+    }
+
+    if (!authToken) {
+      setTicketModalOpen(false);
+      alert('Trebuie s�� fii autentificat pentru a rezerva bilete.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/tickets`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          eventId: selectedEvent.id,
+          count: ticketCount,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const message =
+          data.error ||
+          data.message ||
+          `Rezervarea a eE9uat (cod ${res.status}).`;
+        alert(message);
+      } else {
+        alert('Biletele au fost rezervate cu succes! Verific��-TEi email-ul pentru detalii.');
+      }
+    } catch (error) {
+      console.error(error);
+      alert('Eroare la conectarea cu serverul de bilete. Asigur��-te c�� backend-ul ruleaz��.');
+    } finally {
+      setTicketModalOpen(false);
+    }
   };
 
   const computeTotalPrice = () => {
