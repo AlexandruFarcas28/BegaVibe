@@ -2,6 +2,7 @@ import os
 from datetime import datetime, timedelta
 
 import jwt
+from google import genai
 from flask import Flask, request, jsonify, g
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
@@ -31,8 +32,16 @@ db = client[MONGO_DB_NAME]
 users_col = db["users"]
 events_col = db["events"]
 tickets_col = db["tickets"]
-
-
+# ----------------- GEMINI CONFIG -----------------
+try:
+    # The client automatically uses the GEMINI_API_KEY environment variable 
+    # which was loaded from your local .env file.
+    gemini_client = genai.Client()
+    print("✅ Gemini Client initialized successfully.")
+except Exception as e:
+    print(f"⚠️ Error initializing Gemini Client: {e}")
+    # Set to None if initialization fails to prevent crashes later
+    gemini_client = None
 # ----------------- JWT CONFIG -----------------
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
