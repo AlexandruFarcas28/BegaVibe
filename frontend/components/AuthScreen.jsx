@@ -440,7 +440,7 @@ function AuthScreen({ onAuthSuccess, onOrganizerLogin, onOrganizerSignup, theme,
                 <div className="input-group">
                   <p className="info-message">
                     Nu ai nevoie de email sau parolă pentru a intra ca invitat. Doar apasă{' '}
-                    <strong>„Intră ca invitat”</strong> și poți explora evenimentele.
+                    <strong>„Intră ca invitat"</strong> și poți explora evenimentele.
                   </p>
                 </div>
               )}

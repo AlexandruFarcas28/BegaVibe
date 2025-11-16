@@ -46,7 +46,7 @@ function App() {
       <UserEventsPage
         theme={theme}
         onToggleTheme={handleToggleTheme}
-        onLogout={handleLogoutToAuth} // butonul „Înapoi la login”
+        onLogout={handleLogoutToAuth} // butonul „Înapoi la login"
       />
     );
   }
@@ -57,7 +57,7 @@ function App() {
       <OrganizerSignupPage
         theme={theme}
         onToggleTheme={handleToggleTheme}
-        onLogout={handleLogoutToAuth} // ⬅ asta trebuie ca să meargă „Înapoi”
+        onLogout={handleLogoutToAuth} // ⬅ asta trebuie ca să meargă „Înapoi"
         email={pendingOrganizerEmail}
       />
     );
@@ -81,7 +81,7 @@ function App() {
       onToggleTheme={handleToggleTheme}
       onAuthSuccess={handleUserLogin}       // user normal
       onOrganizerLogin={handleOrganizerLogin}   // login ca organizator
-      onOrganizerSignup={handleOrganizerSignup} // „Devino organizator”
+      onOrganizerSignup={handleOrganizerSignup} // „Devino organizator"
     />
   );
 }
