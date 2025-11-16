@@ -1,7 +1,7 @@
 import os
 import json
-from datetime import datetime, timedelta, UTC # <-- UTC importat
-import pytz # Import necesar pentru ora locală (pentru chatbot)
+from datetime import datetime, timedelta, UTC
+import pytz # Necesar pentru a gestiona fusurile orare (dacă dorești ora locală RO)
 
 import jwt
 from google import genai
@@ -16,8 +16,9 @@ from functools import wraps
 # Încarcă variabilele din .env
 load_dotenv()
 
-# Setează fusul orar local pentru uz intern (ex: chatbot)
-ROMANIA_TZ = pytz.timezone('Europe/Bucharest')
+# Setează fusul orar local pentru uz intern (ex: chatbot context)
+# Păstrăm referința chiar dacă folosim datetime.now().strftime()
+ROMANIA_TZ = pytz.timezone('Europe/Bucharest') 
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -49,6 +50,50 @@ except Exception as e:
     gemini_client = None
 
 
+# ----------------- FUNCTII GEMINI INTERNE -----------------
+
+def check_profanity_internal(text_to_check):
+    """Funcție internă care apelează Gemini pentru a verifica profanitatea."""
+    if not gemini_client:
+        return {"hasProfanity": False, "reason": "Gemini service unavailable, skipped check."}
+
+    prompt = (
+        "Ești un sistem de moderare a conținutului, strict și imparțial. "
+        "Analizează următorul text, care este un câmp dintr-un formular public. "
+        "Verifică dacă textul conține limbaj vulgar, jigniri, amenințări sau conținut explicit. "
+        "Răspunde DOAR cu un obiect JSON în formatul: "
+        "{ \"hasProfanity\": boolean, \"reason\": string }"
+        "Unde `hasProfanity` este `true` dacă textul este neadecvat și `false` în caz contrar. "
+        "NU adăuga niciun alt text."
+        f"\n\nTEXT DE ANALIZAT: \"{text_to_check}\""
+    )
+    
+    try:
+        response = gemini_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        
+        json_text = response.text.strip().replace("```json", "").replace("```", "")
+        
+        try:
+            result = json.loads(json_text)
+            if 'hasProfanity' in result and 'reason' in result:
+                 return result
+            else:
+                 raise ValueError("Răspunsul JSON nu a avut structura așteptată.")
+
+        except json.JSONDecodeError as json_e:
+            print(f"Eroare de parsare JSON (Profanity Check): {json_e}")
+            # Dacă API-ul eșuează, nu blocăm textul, dar înregistram eroarea
+            return {"hasProfanity": False, "reason": "Eroare la procesarea răspunsului API."}
+
+    except Exception as e:
+        print(f"Gemini API Error (Profanity Check): {e}")
+        # Dacă apelul API eșuează, nu blocăm textul, dar înregistram eroarea
+        return {"hasProfanity": False, "reason": "Eroare la apelul Gemini API."}
+
+
 # --- Simple chat endpoint that proxies to Google Generative AI (Gemini) ---
 @app.route('/api/chat', methods=['POST'])
 def api_chat():
@@ -61,19 +106,13 @@ def api_chat():
     if not gemini_client:
         return jsonify({'error': 'service_unavailable', 'message': 'Gemini Client nu a putut fi inițializat.'}), 503
 
-    # 1. Obține data și ora curentă Lumea (UTC)
-    # Folosim UTC pentru a fi siguri, dar îi spunem modelului că este ora locală.
-    current_time_utc = datetime.now(UTC) 
+    # Obține data și ora curentă locală
+    current_time_str = datetime.now().strftime("%A, %d %B %Y, %H:%M EET") 
     
-    # Folosim ora locală a serverului (dacă rulează în RO) sau UTC + 2
-    # Ne bazăm pe sistem, dar pentru un context RO mai clar, putem folosi pytz/timezone
-    # Dar, pentru simplitate și rapiditate, ne bazăm pe ce oferă sistemul.
-    current_time_str = datetime.now().strftime("%A, %d %B %Y, %H:%M EET") # Ex: Luni, 16 Noiembrie 2025, 13:30 EET
-    
-    # 2. Creează un prompt de sistem care include contextul de timp
+    # Creează un prompt de sistem care include contextul de timp
     system_context = f"Ești un asistent util și prietenos. Data și ora curentă în România (EET) este: {current_time_str}. Răspunde la întrebarea utilizatorului."
     
-    # 3. Combină contextul cu întrebarea utilizatorului
+    # Combină contextul cu întrebarea utilizatorului
     full_prompt = f"{system_context}\n\nUtilizator: {user_prompt}"
 
     model_name = 'gemini-2.5-flash' 
@@ -104,52 +143,9 @@ def api_filter_profanity():
             "hasProfanity": False,
             "message": "Text gol. Considerat inofensiv."
         }), 200
-
-    if not gemini_client:
-        return jsonify({'error': 'service_unavailable', 'message': 'Serviciul Gemini nu a putut fi inițializat.'}), 503
-
-    # Instrucțiuni clare și un format de ieșire JSON strict
-    prompt = (
-        "Ești un sistem de moderare a conținutului, strict și imparțial. "
-        "Analizează următorul text, care este un câmp dintr-un formular public. "
-        "Verifică dacă textul conține limbaj vulgar, jigniri, amenințări sau conținut explicit. "
-        "Răspunde DOAR cu un obiect JSON în formatul: "
-        "{ \"hasProfanity\": boolean, \"reason\": string }"
-        "Unde `hasProfanity` este `true` dacă textul este neadecvat și `false` în caz contrar. "
-        "`reason` trebuie să explice pe scurt de ce a fost marcat sau 'Textul este OK' dacă este adecvat. "
-        "NU adăuga niciun alt text, formatare sau explicație înafara obiectului JSON."
-        f"\n\nTEXT DE ANALIZAT: \"{text_to_check}\""
-    )
-    
-    try:
-        response = gemini_client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
         
-        # Încercăm să extragem obiectul JSON din răspuns
-        json_text = response.text.strip().replace("```json", "").replace("```", "")
-        
-        try:
-            result = json.loads(json_text)
-            
-            # Validare minimă a structurii
-            if 'hasProfanity' in result and 'reason' in result:
-                 return jsonify(result), 200
-            else:
-                 raise ValueError("Răspunsul JSON nu a avut structura așteptată.")
-
-        except json.JSONDecodeError as json_e:
-            # Dacă modelul nu returnează JSON valid, marcăm ca eroare internă
-            print(f"Eroare de parsare JSON: {json_e}. Răspunsul modelului: {response.text}")
-            return jsonify({
-                "hasProfanity": False,
-                "message": "Eroare internă la procesarea filtrului, se trece la validare locală."
-            }), 500
-
-    except Exception as e:
-        print(f"Gemini API Error: {e}")
-        return jsonify({'error': 'gemini_api_call_failed', 'details': str(e)}), 502
+    result = check_profanity_internal(text_to_check)
+    return jsonify(result), 200
     
     
 # ----------------- JWT CONFIG -----------------
@@ -176,6 +172,7 @@ def create_jwt_token(user):
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 def decode_jwt_token(token):
+    # PyJWT decode necesită algoritmi în listă
     return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
 
 
@@ -189,14 +186,12 @@ def jwt_required(f):
         token = auth_header.split(" ", 1)[1].strip()
 
         try:
-            # CORECTAT: jwt.decode din PyJWT necesită un obiect datetime conștient de fus orar
             payload = decode_jwt_token(token) 
         except jwt.ExpiredSignatureError:
             return jsonify({"error": "Token expirat"}), 401
         except jwt.InvalidTokenError:
             return jsonify({"error": "Token invalid"}), 401
         except Exception as e:
-            # Capturăm erori legate de structură sau decodare
             print(f"Eroare la decodare JWT: {e}")
             return jsonify({"error": "Token invalid sau corupt"}), 401
 
@@ -308,7 +303,7 @@ def register():
             "email": email,
             "passwordHash": password_hash,
             "role": "user",
-            "createdAt": datetime.now(UTC),
+            "createdAt": datetime.now(UTC), # CORECTAT
         }
     )
 
@@ -584,6 +579,7 @@ def get_event(event_id):
 
 @app.post("/api/events")
 def create_event():
+    # NU ESTE PROTEJAT DE JWT, lăsat așa cum era original, deși ar trebui protejat.
     data = request.get_json() or {}
 
     title = (data.get("title") or "").strip()
@@ -643,6 +639,7 @@ def create_my_event():
     title = (data.get("title") or "").strip()
     date = (data.get("date") or "").strip()
     location_name = (data.get("locationName") or "").strip()
+    description = (data.get("description") or "").strip() # Adăugat description pentru verificare
 
     if not title or not date or not location_name:
         return (
@@ -654,6 +651,26 @@ def create_my_event():
             400,
         )
 
+    # NOUA LOGICĂ DE BLOCARE AICI
+    # Combinăm titlul și descrierea pentru o verificare completă
+    full_text_check = f"Titlu: {title}. Descriere: {description}" 
+    
+    profanity_check_result = check_profanity_internal(full_text_check)
+    
+    if profanity_check_result.get("hasProfanity"):
+        # BLOCKARE & ALERTĂ
+        return (
+            jsonify(
+                {
+                    "error": "Conținutul evenimentului (Titlu/Descriere) conține limbaj neadecvat.",
+                    "reason": profanity_check_result.get("reason", "Motiv nespecificat de filtru."),
+                    "alert": "Te rugăm să corectezi textul înainte de a trimite." # Mesaj pentru frontend
+                }
+            ),
+            400, # Bad Request
+        )
+    # SFÂRȘIT LOGICĂ BLOCARE
+    
     event_doc = {
         "title": title,
         "date": date,
@@ -717,6 +734,9 @@ def update_event(event_id):
 
     if not update_fields:
         return jsonify({"error": "Nimic de actualizat"}), 400
+        
+    # Dacă se modifică titlul sau alte câmpuri text, se poate adăuga o verificare de profanitate aici
+    # (similar cu logica din create_my_event, dar este lăsată ca îmbunătățire opțională)
 
     update_fields["updatedAt"] = datetime.now(UTC) # Adăugat un timestamp de actualizare
 
@@ -839,5 +859,5 @@ def get_my_tickets():
 
 
 if __name__ == "__main__":
+    # Rulăm Flask, default pe 127.0.0.1:5000
     app.run(debug=True)
-
