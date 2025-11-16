@@ -344,7 +344,7 @@ function MainScreen({ theme, onToggleTheme, authToken, currentUser }) {
   const handleOpenTickets = (event) => {
     if (!authToken) {
       alert(
-        'Pentru a rezerva bilete reale trebuie să fii autentificat cu un cont (nu ca invitat).'
+        'Pentru a rezerva bilete reale trebuie s�� fii autentificat cu un cont (nu ca invitat).'
       );
       return;
     }
@@ -401,7 +401,7 @@ function MainScreen({ theme, onToggleTheme, authToken, currentUser }) {
 
     if (!authToken) {
       setTicketModalOpen(false);
-      alert('Trebuie să fii autentificat pentru a rezerva bilete.');
+      alert('Trebuie s�� fii autentificat pentru a rezerva bilete.');
       return;
     }
 
@@ -427,11 +427,11 @@ function MainScreen({ theme, onToggleTheme, authToken, currentUser }) {
           `Rezervarea a eE9uat (cod ${res.status}).`;
         alert(message);
       } else {
-        alert('Biletele au fost rezervate cu succes! Verificați email-ul pentru detalii.');
+        alert('Biletele au fost rezervate cu succes! Verific��-TEi email-ul pentru detalii.');
       }
     } catch (error) {
       console.error(error);
-      alert('Eroare la conectarea cu serverul de bilete. Asigură-te că backend-ul rulează.');
+      alert('Eroare la conectarea cu serverul de bilete. Asigur��-te c�� backend-ul ruleaz��.');
     } finally {
       setTicketModalOpen(false);
     }

@@ -28,85 +28,20 @@ const MOCK_ORG_EVENTS = [
   },
 ];
 
-// 🔴 LISTĂ EXTINSĂ DE CUVINTE INTERZISE (NORMALIZATE, FĂRĂ DIACRITICE)
 const BANNED_WORDS = [
-  'prost',
-  'proasta',
-  'prosti',
-  'idiot',
-  'idioata',
-  'bou',
-  'boi',
-  'handicapat',
-  'handicapata',
-  'nesimtit',
-  'nesimtita',
-  'jeg',
-  'jegos',
-  'jeguri',
-  'obscen',
-  'obscena',
-  'obscenitati',
-  'jignire',
-  'jigniri',
-  'rahat',
-  'cacat',
-  'kkt',
-  'pula',
-  'pizda',
-  'muie',
-  'labagiu',
-  'dracu',
-  'dracului',
-  'naibii',
-  'porcarie',
-  'mizerie',
-  'hate',
   'injuratura',
-  'injuraturi',
+  'obscen',
+  'jignire',
+  'hate',
 ];
-
-// 🔧 NORMALIZARE TEXT (lowercase, fără diacritice, leetspeak simplu, curățare)
-const normalizeText = (value) => {
-  if (!value) return '';
-
-  let text = value
-    .toString()
-    .toLowerCase()
-    // scoatem diacritice
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-
-  // leetspeak simplu
-  text = text
-    .replace(/0/g, 'o')
-    .replace(/1/g, 'i')
-    .replace(/3/g, 'e')
-    .replace(/4/g, 'a')
-    .replace(/5/g, 's')
-    .replace(/7/g, 't');
-
-  // eliminăm caractere non-alfanumerice dar păstrăm spațiile
-  text = text.replace(/[^a-z0-9\s]/g, ' ');
-
-  // comprimăm spațiile
-  text = text.replace(/\s+/g, ' ').trim();
-
-  return text;
-};
-
-// ✅ FILTRU REFĂCUT – FOLOSEȘTE NORMALIZAREA + LISTA EXTINSĂ
-const containsBannedWords = (value) => {
-  const norm = normalizeText(value || '');
-  if (!norm) return false;
-
-  // verificăm dacă textul normalizat conține oricare dintre cuvintele interzise
-  return BANNED_WORDS.some((w) => norm.includes(w));
-};
 
 const isNumericOnly = (value) => /^[0-9]+$/.test(value.trim());
 const isValidPrice = (value) => /^([0-9]+)(\.[0-9]{1,2})?$/.test(value.trim());
 const isValidCui = (value) => /^[0-9]{6,10}$/.test(value.trim());
+const containsBannedWords = (value) => {
+  const lower = value.toLowerCase();
+  return BANNED_WORDS.some((w) => lower.includes(w));
+};
 
 const mapApiEventToUi = (apiEv) => ({
   id: apiEv.id,
@@ -537,9 +472,7 @@ function OrganizerDashboard({ theme, onToggleTheme, onLogout, authToken, current
                     <div className="org-event-main">
                       <h3>{ev.title}</h3>
                       <p>📅 {ev.date || 'Dată necompletată'}</p>
-                      {ev.location && (
-                        <p>📍 {ev.location}</p>
-                      )}
+                      {ev.location && <p>📍 {ev.location}</p>}
                       {ev.organizerName && (
                         <p>👤 Organizator: {ev.organizerName}</p>
                       )}
