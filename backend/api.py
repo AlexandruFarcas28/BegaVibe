@@ -11,6 +11,7 @@ from bson.objectid import ObjectId
 from dotenv import load_dotenv
 from functools import wraps
 
+
 # Încarcă variabilele din .env
 load_dotenv()
 
@@ -42,6 +43,55 @@ except Exception as e:
     print(f"⚠️ Error initializing Gemini Client: {e}")
     # Set to None if initialization fails to prevent crashes later
     gemini_client = None
+
+
+# --- Simple chat endpoint that proxies to Google Generative AI (Gemini) ---
+@app.route('/api/chat', methods=['POST'])
+def api_chat():
+    data = request.get_json(silent=True) or {}
+    prompt = data.get('prompt') or data.get('message') or ''
+    if not prompt:
+        return jsonify({'error': 'empty_prompt'}), 400
+
+    gemini_key = os.getenv('GEMINI_API_KEY')
+    if not gemini_key:
+        return jsonify({'error': 'missing_gemini_key', 'message': 'Set GEMINI_API_KEY in .env'}), 500
+
+    try:
+        # Try to configure the genai client if available
+        try:
+            genai.configure(api_key=gemini_key)
+        except Exception:
+            pass
+
+        reply_text = None
+        try:
+            # Preferred simple API if available
+            resp = genai.generate_text(model='chat-bison-001', prompt=prompt)
+            if isinstance(resp, str):
+                reply_text = resp
+            elif hasattr(resp, 'text'):
+                reply_text = resp.text
+            elif isinstance(resp, dict) and 'text' in resp:
+                reply_text = resp['text']
+            else:
+                reply_text = str(resp)
+        except Exception:
+            try:
+                model = genai.TextGenerationModel.from_pretrained('chat-bison-001')
+                out = model.generate(prompt)
+                if hasattr(out, 'text'):
+                    reply_text = out.text
+                elif isinstance(out, dict) and 'text' in out:
+                    reply_text = out['text']
+                else:
+                    reply_text = str(out)
+            except Exception as e:
+                return jsonify({'error': 'genai_error', 'details': str(e)}), 502
+
+        return jsonify({'reply': reply_text})
+    except Exception as e:
+        return jsonify({'error': 'server_error', 'details': str(e)}), 500
 
 
 # ----------------- JWT CONFIG -----------------

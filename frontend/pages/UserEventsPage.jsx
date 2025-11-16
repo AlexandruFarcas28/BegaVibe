@@ -26,11 +26,9 @@ function UserEventsPage({ theme, onToggleTheme, onLogout, authToken, currentUser
 
     const t = setTimeout(updatePosition, 50);
     window.addEventListener('resize', updatePosition);
-    window.addEventListener('scroll', updatePosition);
     return () => {
       clearTimeout(t);
       window.removeEventListener('resize', updatePosition);
-      window.removeEventListener('scroll', updatePosition);
     };
   }, []);
 

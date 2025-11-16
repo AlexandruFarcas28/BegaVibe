@@ -445,17 +445,47 @@ function MainScreen({ theme, onToggleTheme, authToken, currentUser }) {
     return numeric * ticketCount;
   };
 
-  const handleSendChat = () => {
+  const handleSendChat = async () => {
     const text = (chatInput || '').trim();
     if (!text) return;
-    // append user message
+
+    // append user message and clear input
     setChatMessages((m) => [...m, { from: 'user', text }]);
     setChatInput('');
 
-    // naive bot reply (placeholder) — you can integrate AI/backend later
-    setTimeout(() => {
-      setChatMessages((m) => [...m, { from: 'bot', text: `Am înțeles: "${text}". Poți căuta în aplicație pentru a găsi evenimente.` }]);
-    }, 600);
+    // show a temporary typing indicator from the bot
+    const typingId = Date.now();
+    setChatMessages((m) => [...m, { from: 'bot', text: '...', _id: typingId }]);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: text }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // remove typing and fallback to local reply
+        setChatMessages((m) => m.filter((msg) => msg._id !== typingId));
+        const fallback = data.error || 'Nu am putut obține un răspuns (server).';
+        setChatMessages((m) => [...m, { from: 'bot', text: `Eroare: ${fallback}` }]);
+        return;
+      }
+
+      const reply = data.reply || data.result || data.text || '';
+      // remove typing placeholder and append real reply
+      setChatMessages((m) => m.filter((msg) => msg._id !== typingId));
+      if (reply) {
+        setChatMessages((m) => [...m, { from: 'bot', text: reply }]);
+      } else {
+        setChatMessages((m) => [...m, { from: 'bot', text: 'Nu am un răspuns la momentul acesta.' }]);
+      }
+    } catch (err) {
+      // network or other error — remove typing and fallback
+      setChatMessages((m) => m.filter((msg) => msg._id !== typingId));
+      setChatMessages((m) => [...m, { from: 'bot', text: `Eroare de rețea: ${String(err)}` }]);
+    }
   };
 
   // 1) eveniment selectat, 2) locația userului, 3) fallback Timișoara
