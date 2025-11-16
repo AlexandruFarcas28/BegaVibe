@@ -102,6 +102,16 @@
     <button id="btnGetMe">GET /api/me</button>
     <pre id="meOutput"></pre>
 
+    <h3 style="margin-top: 12px;">Update Me (PATCH /api/me)</h3>
+    <label>New Email (optional)</label>
+    <input id="updateMeEmail" type="email" placeholder="new-email@example.com" />
+
+    <label>New Password (optional)</label>
+    <input id="updateMePassword" type="password" placeholder="new password" />
+
+    <button id="btnUpdateMe">Update Me</button>
+    <pre id="updateMeOutput"></pre>
+
     <h3 style="margin-top: 12px;">Register Organizer (POST /api/organizers/register)</h3>
     <label>Organizer Email</label>
     <input id="orgEmail" type="email" placeholder="organizer@example.com" />
@@ -127,6 +137,11 @@
     <h3 style="margin-top: 12px;">GET /api/organizers/me</h3>
     <button id="btnGetOrganizerMe">Get Organizer Me</button>
     <pre id="orgMeOutput"></pre>
+
+    <h3 style="margin-top: 12px;">Update Organizer Profile (PATCH /api/organizers/me)</h3>
+    <small>Uses Organizer Name / Phone / Website / Description fields above.</small>
+    <button id="btnUpdateOrganizerMe">Update Organizer Profile</button>
+    <pre id="updateOrgMeOutput"></pre>
   </div>
 
   <div class="section">
@@ -253,6 +268,9 @@
     const authOutput = document.getElementById('authOutput');
     const tokenBox = document.getElementById('tokenBox');
     const meOutput = document.getElementById('meOutput');
+    const updateMeEmail = document.getElementById('updateMeEmail');
+    const updateMePassword = document.getElementById('updateMePassword');
+    const updateMeOutput = document.getElementById('updateMeOutput');
     const orgEmail = document.getElementById('orgEmail');
     const orgPassword = document.getElementById('orgPassword');
     const orgName = document.getElementById('orgName');
@@ -261,6 +279,7 @@
     const orgDescription = document.getElementById('orgDescription');
     const orgAuthOutput = document.getElementById('orgAuthOutput');
     const orgMeOutput = document.getElementById('orgMeOutput');
+    const updateOrgMeOutput = document.getElementById('updateOrgMeOutput');
 
     const eventsOutput = document.getElementById('eventsOutput');
     const singleEventId = document.getElementById('singleEventId');
@@ -356,6 +375,47 @@
       }
     }
 
+    async function updateMeProfile() {
+      updateMeOutput.textContent = 'Sending...';
+
+      const payload = {};
+      const email = updateMeEmail.value.trim();
+      const password = updateMePassword.value;
+
+      if (email) {
+        payload.email = email;
+      }
+      if (password) {
+        payload.password = password;
+      }
+
+      if (Object.keys(payload).length === 0) {
+        updateMeOutput.textContent = 'Nothing to update.';
+        return;
+      }
+
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (currentToken) {
+          headers['Authorization'] = 'Bearer ' + currentToken;
+        }
+        const res = await fetch(API_BASE + '/api/me', {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        updateMeOutput.textContent =
+          'Status: ' + res.status + ' ' + res.statusText + '\\n' +
+          JSON.stringify(data, null, 2);
+        if (res.ok && data.token) {
+          setToken(data.token);
+        }
+      } catch (err) {
+        updateMeOutput.textContent = 'Error: ' + err.message;
+      }
+    }
+
     async function registerOrganizer() {
       orgAuthOutput.textContent = 'Sending...';
       try {
@@ -397,6 +457,39 @@
           JSON.stringify(data, null, 2);
       } catch (err) {
         orgMeOutput.textContent = 'Error: ' + err.message;
+      }
+    }
+
+    async function updateOrganizerProfile() {
+      updateOrgMeOutput.textContent = 'Sending...';
+
+      const payload = {};
+      if (orgName.value.trim()) payload.orgName = orgName.value;
+      if (orgPhone.value.trim()) payload.phone = orgPhone.value;
+      if (orgWebsite.value.trim()) payload.website = orgWebsite.value;
+      if (orgDescription.value.trim()) payload.description = orgDescription.value;
+
+      if (Object.keys(payload).length === 0) {
+        updateOrgMeOutput.textContent = 'Nothing to update.';
+        return;
+      }
+
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (currentToken) {
+          headers['Authorization'] = 'Bearer ' + currentToken;
+        }
+        const res = await fetch(API_BASE + '/api/organizers/me', {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        updateOrgMeOutput.textContent =
+          'Status: ' + res.status + ' ' + res.statusText + '\\n' +
+          JSON.stringify(data, null, 2);
+      } catch (err) {
+        updateOrgMeOutput.textContent = 'Error: ' + err.message;
       }
     }
 
@@ -628,6 +721,8 @@
     document.getElementById('btnGetMe').addEventListener('click', getMe);
     document.getElementById('btnRegisterOrganizer').addEventListener('click', registerOrganizer);
     document.getElementById('btnGetOrganizerMe').addEventListener('click', getOrganizerMe);
+    document.getElementById('btnUpdateMe').addEventListener('click', updateMeProfile);
+    document.getElementById('btnUpdateOrganizerMe').addEventListener('click', updateOrganizerProfile);
 
     document.getElementById('btnGetEvents').addEventListener('click', getEvents);
     document.getElementById('btnGetEventById').addEventListener('click', getEventById);
