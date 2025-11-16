@@ -42,6 +42,8 @@ except Exception as e:
     print(f"⚠️ Error initializing Gemini Client: {e}")
     # Set to None if initialization fails to prevent crashes later
     gemini_client = None
+
+    
 # ----------------- JWT CONFIG -----------------
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
