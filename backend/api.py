@@ -1,4 +1,5 @@
 import os
+import json
 from datetime import datetime, timedelta
 
 import jwt
@@ -80,6 +81,66 @@ def api_chat():
 
         return jsonify({'reply': reply_text}), 200
         
+    except Exception as e:
+        print(f"Gemini API Error: {e}")
+        return jsonify({'error': 'gemini_api_call_failed', 'details': str(e)}), 502
+    
+# ----------------- API FILTRU DE CONȚINUT (Gemini) -----------------
+
+@app.route('/api/filter/profanity', methods=['POST'])
+def api_filter_profanity():
+    data = request.get_json(silent=True) or {}
+    text_to_check = data.get('text') or ''
+
+    if not text_to_check or not text_to_check.strip():
+        return jsonify({
+            "hasProfanity": False,
+            "message": "Text gol. Considerat inofensiv."
+        }), 200
+
+    if not gemini_client:
+        return jsonify({'error': 'service_unavailable', 'message': 'Serviciul Gemini nu a putut fi inițializat.'}), 503
+
+    # Instrucțiuni clare și un format de ieșire JSON strict
+    prompt = (
+        "Ești un sistem de moderare a conținutului, strict și imparțial. "
+        "Analizează următorul text, care este un câmp dintr-un formular public. "
+        "Verifică dacă textul conține limbaj vulgar, jigniri, amenințări sau conținut explicit. "
+        "Răspunde DOAR cu un obiect JSON în formatul: "
+        "{ \"hasProfanity\": boolean, \"reason\": string }"
+        "Unde `hasProfanity` este `true` dacă textul este neadecvat și `false` în caz contrar. "
+        "`reason` trebuie să explice pe scurt de ce a fost marcat sau 'Textul este OK' dacă este adecvat. "
+        "NU adăuga niciun alt text, formatare sau explicație înafara obiectului JSON."
+        f"\n\nTEXT DE ANALIZAT: \"{text_to_check}\""
+    )
+    
+    try:
+        response = gemini_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        
+        # Încercăm să extragem obiectul JSON din răspuns
+        # Modelele pot adăuga caractere în plus (ex: ```json\n...\n```)
+        json_text = response.text.strip().replace("```json", "").replace("```", "")
+        
+        try:
+            result = json.loads(json_text)
+            
+            # Validare minimă a structurii
+            if 'hasProfanity' in result and 'reason' in result:
+                 return jsonify(result), 200
+            else:
+                 raise ValueError("Răspunsul JSON nu a avut structura așteptată.")
+
+        except json.JSONDecodeError as json_e:
+            # Dacă modelul nu returnează JSON valid, marcăm ca eroare internă
+            print(f"Eroare de parsare JSON: {json_e}. Răspunsul modelului: {response.text}")
+            return jsonify({
+                "hasProfanity": False,
+                "message": "Eroare internă la procesarea filtrului, se trece la validare locală."
+            }), 500
+
     except Exception as e:
         print(f"Gemini API Error: {e}")
         return jsonify({'error': 'gemini_api_call_failed', 'details': str(e)}), 502
