@@ -1,5 +1,7 @@
 import os
-from datetime import datetime, timedelta
+import json
+from datetime import datetime, timedelta, UTC # <-- UTC importat
+import pytz # Import necesar pentru ora locală (pentru chatbot)
 
 import jwt
 from google import genai
@@ -11,9 +13,11 @@ from bson.objectid import ObjectId
 from dotenv import load_dotenv
 from functools import wraps
 
-
 # Încarcă variabilele din .env
 load_dotenv()
+
+# Setează fusul orar local pentru uz intern (ex: chatbot)
+ROMANIA_TZ = pytz.timezone('Europe/Bucharest')
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -49,51 +53,105 @@ except Exception as e:
 @app.route('/api/chat', methods=['POST'])
 def api_chat():
     data = request.get_json(silent=True) or {}
-    prompt = data.get('prompt') or data.get('message') or ''
-    if not prompt:
+    user_prompt = data.get('prompt') or data.get('message') or ''
+    
+    if not user_prompt:
         return jsonify({'error': 'empty_prompt'}), 400
 
-    gemini_key = os.getenv('GEMINI_API_KEY')
-    if not gemini_key:
-        return jsonify({'error': 'missing_gemini_key', 'message': 'Set GEMINI_API_KEY in .env'}), 500
+    if not gemini_client:
+        return jsonify({'error': 'service_unavailable', 'message': 'Gemini Client nu a putut fi inițializat.'}), 503
 
+    # 1. Obține data și ora curentă Lumea (UTC)
+    # Folosim UTC pentru a fi siguri, dar îi spunem modelului că este ora locală.
+    current_time_utc = datetime.now(UTC) 
+    
+    # Folosim ora locală a serverului (dacă rulează în RO) sau UTC + 2
+    # Ne bazăm pe sistem, dar pentru un context RO mai clar, putem folosi pytz/timezone
+    # Dar, pentru simplitate și rapiditate, ne bazăm pe ce oferă sistemul.
+    current_time_str = datetime.now().strftime("%A, %d %B %Y, %H:%M EET") # Ex: Luni, 16 Noiembrie 2025, 13:30 EET
+    
+    # 2. Creează un prompt de sistem care include contextul de timp
+    system_context = f"Ești un asistent util și prietenos. Data și ora curentă în România (EET) este: {current_time_str}. Răspunde la întrebarea utilizatorului."
+    
+    # 3. Combină contextul cu întrebarea utilizatorului
+    full_prompt = f"{system_context}\n\nUtilizator: {user_prompt}"
+
+    model_name = 'gemini-2.5-flash' 
+    
     try:
-        # Try to configure the genai client if available
-        try:
-            genai.configure(api_key=gemini_key)
-        except Exception:
-            pass
+        response = gemini_client.models.generate_content(
+            model=model_name,
+            contents=full_prompt, # Folosește promptul complet
+        )
 
-        reply_text = None
-        try:
-            # Preferred simple API if available
-            resp = genai.generate_text(model='chat-bison-001', prompt=prompt)
-            if isinstance(resp, str):
-                reply_text = resp
-            elif hasattr(resp, 'text'):
-                reply_text = resp.text
-            elif isinstance(resp, dict) and 'text' in resp:
-                reply_text = resp['text']
-            else:
-                reply_text = str(resp)
-        except Exception:
-            try:
-                model = genai.TextGenerationModel.from_pretrained('chat-bison-001')
-                out = model.generate(prompt)
-                if hasattr(out, 'text'):
-                    reply_text = out.text
-                elif isinstance(out, dict) and 'text' in out:
-                    reply_text = out['text']
-                else:
-                    reply_text = str(out)
-            except Exception as e:
-                return jsonify({'error': 'genai_error', 'details': str(e)}), 502
+        reply_text = response.text
 
-        return jsonify({'reply': reply_text})
+        return jsonify({'reply': reply_text}), 200
+        
     except Exception as e:
-        return jsonify({'error': 'server_error', 'details': str(e)}), 500
+        print(f"Gemini API Error: {e}")
+        return jsonify({'error': 'gemini_api_call_failed', 'details': str(e)}), 502
+    
+# ----------------- API FILTRU DE CONȚINUT (Gemini) -----------------
 
+@app.route('/api/filter/profanity', methods=['POST'])
+def api_filter_profanity():
+    data = request.get_json(silent=True) or {}
+    text_to_check = data.get('text') or ''
 
+    if not text_to_check or not text_to_check.strip():
+        return jsonify({
+            "hasProfanity": False,
+            "message": "Text gol. Considerat inofensiv."
+        }), 200
+
+    if not gemini_client:
+        return jsonify({'error': 'service_unavailable', 'message': 'Serviciul Gemini nu a putut fi inițializat.'}), 503
+
+    # Instrucțiuni clare și un format de ieșire JSON strict
+    prompt = (
+        "Ești un sistem de moderare a conținutului, strict și imparțial. "
+        "Analizează următorul text, care este un câmp dintr-un formular public. "
+        "Verifică dacă textul conține limbaj vulgar, jigniri, amenințări sau conținut explicit. "
+        "Răspunde DOAR cu un obiect JSON în formatul: "
+        "{ \"hasProfanity\": boolean, \"reason\": string }"
+        "Unde `hasProfanity` este `true` dacă textul este neadecvat și `false` în caz contrar. "
+        "`reason` trebuie să explice pe scurt de ce a fost marcat sau 'Textul este OK' dacă este adecvat. "
+        "NU adăuga niciun alt text, formatare sau explicație înafara obiectului JSON."
+        f"\n\nTEXT DE ANALIZAT: \"{text_to_check}\""
+    )
+    
+    try:
+        response = gemini_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        
+        # Încercăm să extragem obiectul JSON din răspuns
+        json_text = response.text.strip().replace("```json", "").replace("```", "")
+        
+        try:
+            result = json.loads(json_text)
+            
+            # Validare minimă a structurii
+            if 'hasProfanity' in result and 'reason' in result:
+                 return jsonify(result), 200
+            else:
+                 raise ValueError("Răspunsul JSON nu a avut structura așteptată.")
+
+        except json.JSONDecodeError as json_e:
+            # Dacă modelul nu returnează JSON valid, marcăm ca eroare internă
+            print(f"Eroare de parsare JSON: {json_e}. Răspunsul modelului: {response.text}")
+            return jsonify({
+                "hasProfanity": False,
+                "message": "Eroare internă la procesarea filtrului, se trece la validare locală."
+            }), 500
+
+    except Exception as e:
+        print(f"Gemini API Error: {e}")
+        return jsonify({'error': 'gemini_api_call_failed', 'details': str(e)}), 502
+    
+    
 # ----------------- JWT CONFIG -----------------
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
@@ -112,10 +170,10 @@ def create_jwt_token(user):
         "user_id": str(user["_id"]),
         "email": user["email"],
         "role": role,
-        "exp": datetime.utcnow() + timedelta(days=JWT_EXP_DAYS),
+        # CORECTAT: Folosește datetime.now(UTC)
+        "exp": datetime.now(UTC) + timedelta(days=JWT_EXP_DAYS),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-
 
 def decode_jwt_token(token):
     return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
@@ -131,11 +189,16 @@ def jwt_required(f):
         token = auth_header.split(" ", 1)[1].strip()
 
         try:
-            payload = decode_jwt_token(token)
+            # CORECTAT: jwt.decode din PyJWT necesită un obiect datetime conștient de fus orar
+            payload = decode_jwt_token(token) 
         except jwt.ExpiredSignatureError:
             return jsonify({"error": "Token expirat"}), 401
         except jwt.InvalidTokenError:
             return jsonify({"error": "Token invalid"}), 401
+        except Exception as e:
+            # Capturăm erori legate de structură sau decodare
+            print(f"Eroare la decodare JWT: {e}")
+            return jsonify({"error": "Token invalid sau corupt"}), 401
 
         user_id = payload.get("user_id")
         if not user_id:
@@ -191,7 +254,7 @@ def seed_events_if_empty():
                 "longitude": 21.2272,
                 "imageUrl": "https://via.placeholder.com/300x150?text=Concert",
                 "status": "published",
-                "createdAt": datetime.utcnow(),
+                "createdAt": datetime.now(UTC), # CORECTAT
             },
             {
                 "title": "Festival de teatru",
@@ -201,7 +264,7 @@ def seed_events_if_empty():
                 "longitude": 21.2257,
                 "imageUrl": "https://via.placeholder.com/300x150?text=Teatru",
                 "status": "published",
-                "createdAt": datetime.utcnow(),
+                "createdAt": datetime.now(UTC), # CORECTAT
             },
             {
                 "title": "Târg de Crăciun",
@@ -211,7 +274,7 @@ def seed_events_if_empty():
                 "longitude": 21.2253,
                 "imageUrl": "https://via.placeholder.com/300x150?text=Targ+de+Craciun",
                 "status": "published",
-                "createdAt": datetime.utcnow(),
+                "createdAt": datetime.now(UTC), # CORECTAT
             },
         ]
         events_col.insert_many(sample_events)
@@ -245,7 +308,7 @@ def register():
             "email": email,
             "passwordHash": password_hash,
             "role": "user",
-            "createdAt": datetime.utcnow(),
+            "createdAt": datetime.now(UTC),
         }
     )
 
@@ -300,10 +363,10 @@ def get_me():
 @jwt_required
 def update_me():
     """
-    Actualizeaz�� datele de baz�� ale utilizatorului curent (email, parol��).
-    Body JSON acceptat (toate cA�mpurile opE>ionale):
+    Actualizează datele de bază ale utilizatorului curent (email, parolă).
+    Body JSON acceptat (toate câmpurile opționale):
       - email: string
-      - password: string (noua parol��)
+      - password: string (noua parolă)
     """
     user = g.current_user
     data = request.get_json() or {}
@@ -324,7 +387,7 @@ def update_me():
 
     if password is not None:
         if not password:
-            return jsonify({"error": "Parola nu poate fi goal��"}), 400
+            return jsonify({"error": "Parola nu poate fi goală"}), 400
         password_hash = bcrypt.generate_password_hash(password).decode("utf-8")
         updates["passwordHash"] = password_hash
 
@@ -380,7 +443,7 @@ def register_organizer():
         "phone": phone or None,
         "website": website or None,
         "description": description or None,
-        "createdAt": datetime.utcnow(),
+        "createdAt": datetime.now(UTC), # CORECTAT
     }
 
     result = users_col.insert_one(
@@ -389,7 +452,7 @@ def register_organizer():
             "passwordHash": password_hash,
             "role": "organizer",
             "organizerProfile": organizer_profile,
-            "createdAt": datetime.utcnow(),
+            "createdAt": datetime.now(UTC), # CORECTAT
         }
     )
 
@@ -464,7 +527,7 @@ def update_organizer_me():
     if description is not None:
         profile["description"] = (description or "").strip() or None
 
-    profile["updatedAt"] = datetime.utcnow()
+    profile["updatedAt"] = datetime.now(UTC) # CORECTAT
 
     users_col.update_one(
         {"_id": user["_id"]},
@@ -548,7 +611,7 @@ def create_event():
         "latitude": data.get("latitude"),
         "longitude": data.get("longitude"),
         "status": data.get("status") or "published",
-        "createdAt": datetime.utcnow(),
+        "createdAt": datetime.now(UTC), # CORECTAT
     }
 
     result = events_col.insert_one(event_doc)
@@ -603,7 +666,7 @@ def create_my_event():
         "longitude": data.get("longitude"),
         "status": data.get("status") or "draft",
         "ownerId": user["_id"],
-        "createdAt": datetime.utcnow(),
+        "createdAt": datetime.now(UTC), # CORECTAT
     }
 
     result = events_col.insert_one(event_doc)
@@ -654,6 +717,8 @@ def update_event(event_id):
 
     if not update_fields:
         return jsonify({"error": "Nimic de actualizat"}), 400
+
+    update_fields["updatedAt"] = datetime.now(UTC) # Adăugat un timestamp de actualizare
 
     events_col.update_one({"_id": obj_id}, {"$set": update_fields})
     updated = events_col.find_one({"_id": obj_id})
@@ -718,7 +783,7 @@ def create_ticket():
         "userId": user["_id"],
         "eventId": event_obj_id,
         "count": count,
-        "createdAt": datetime.utcnow(),
+        "createdAt": datetime.now(UTC), # CORECTAT
     }
 
     result = tickets_col.insert_one(ticket_doc)

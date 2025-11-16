@@ -151,7 +151,7 @@ function AuthScreen({ onAuthSuccess, onOrganizerLogin, onOrganizerSignup, theme,
     const trimmedEmail = email.trim();
 
     if (!trimmedEmail || !password.trim()) {
-      alert('Completeaz�� toate cA�mpurile.');
+      alert('Completează toate câmpurile.');
       return;
     }
 
@@ -173,14 +173,14 @@ function AuthScreen({ onAuthSuccess, onOrganizerLogin, onOrganizerSignup, theme,
         const message =
           data.error ||
           data.message ||
-          `Autentificare eETuat�� (cod ${res.status}).`;
+          `Autentificare eșuată (cod ${res.status}).`;
         alert(message);
         return;
       }
 
       const token = data.token;
       if (!token) {
-        alert('Autentificare reuE9it��, dar lipseste token-ul din r��spuns.');
+        alert('Autentificare reușită, dar lipseste token-ul din răspuns.');
         if (onAuthSuccess) {
           onAuthSuccess(null, null);
         }
@@ -210,7 +210,7 @@ function AuthScreen({ onAuthSuccess, onOrganizerLogin, onOrganizerSignup, theme,
       }
     } catch (error) {
       console.error(error);
-      alert('Eroare la conectarea cu serverul. Verific�� dac�� backend-ul ruleaz�� pe 127.0.0.1:5000.');
+      alert('Eroare la conectarea cu serverul. Verifică dacă backend-ul rulează pe 127.0.0.1:5000.');
     } finally {
       setIsSubmitting(false);
     }
@@ -219,7 +219,7 @@ function AuthScreen({ onAuthSuccess, onOrganizerLogin, onOrganizerSignup, theme,
   const handleRegisterApi = async () => {
     // Dac�� e Guest, nu cerem date, doar intr��m
     if (accountType === 'guest') {
-      alert('Ai intrat ca invitat. PoE>i explora evenimentele, dar pentru rezerv��ri va fi nevoie de cont.');
+      alert('Ai intrat ca invitat. Poți explora evenimentele, dar pentru rezervări va fi nevoie de cont.');
       if (onAuthSuccess) {
         onAuthSuccess(null, null);
       }
@@ -605,7 +605,7 @@ function AuthScreen({ onAuthSuccess, onOrganizerLogin, onOrganizerSignup, theme,
                 <div className="input-group">
                   <p className="info-message">
                     Nu ai nevoie de email sau parolă pentru a intra ca invitat. Doar apasă{' '}
-                    <strong>„Intră ca invitat”</strong> și poți explora evenimentele.
+                    <strong>„Intră ca invitat"</strong> și poți explora evenimentele.
                   </p>
                 </div>
               )}
