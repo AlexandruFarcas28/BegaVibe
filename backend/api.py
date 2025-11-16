@@ -11,7 +11,6 @@ from bson.objectid import ObjectId
 from dotenv import load_dotenv
 from functools import wraps
 
-
 # Încarcă variabilele din .env
 load_dotenv()
 
@@ -43,7 +42,6 @@ except Exception as e:
     print(f"⚠️ Error initializing Gemini Client: {e}")
     # Set to None if initialization fails to prevent crashes later
     gemini_client = None
-
 
 # --- Simple chat endpoint that proxies to Google Generative AI (Gemini) ---
 @app.route('/api/chat', methods=['POST'])
@@ -92,7 +90,6 @@ def api_chat():
         return jsonify({'reply': reply_text})
     except Exception as e:
         return jsonify({'error': 'server_error', 'details': str(e)}), 500
-
 
 # ----------------- JWT CONFIG -----------------
 
@@ -300,10 +297,10 @@ def get_me():
 @jwt_required
 def update_me():
     """
-    Actualizeaz�� datele de baz�� ale utilizatorului curent (email, parol��).
-    Body JSON acceptat (toate cA�mpurile opE>ionale):
+    Actualizează datele de bază ale utilizatorului curent (email, parolă).
+    Body JSON acceptat (toate câmpurile opE>ionale):
       - email: string
-      - password: string (noua parol��)
+      - password: string (noua parolă)
     """
     user = g.current_user
     data = request.get_json() or {}
@@ -324,7 +321,7 @@ def update_me():
 
     if password is not None:
         if not password:
-            return jsonify({"error": "Parola nu poate fi goal��"}), 400
+            return jsonify({"error": "Parola nu poate fi goală"}), 400
         password_hash = bcrypt.generate_password_hash(password).decode("utf-8")
         updates["passwordHash"] = password_hash
 
