@@ -2,6 +2,7 @@ import os
 from datetime import datetime, timedelta
 
 import jwt
+from google import genai
 from flask import Flask, request, jsonify, g
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
@@ -9,6 +10,7 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 from dotenv import load_dotenv
 from functools import wraps
+
 
 # Încarcă variabilele din .env
 load_dotenv()
@@ -31,6 +33,65 @@ db = client[MONGO_DB_NAME]
 users_col = db["users"]
 events_col = db["events"]
 tickets_col = db["tickets"]
+# ----------------- GEMINI CONFIG -----------------
+try:
+    # The client automatically uses the GEMINI_API_KEY environment variable 
+    # which was loaded from your local .env file.
+    gemini_client = genai.Client()
+    print("✅ Gemini Client initialized successfully.")
+except Exception as e:
+    print(f"⚠️ Error initializing Gemini Client: {e}")
+    # Set to None if initialization fails to prevent crashes later
+    gemini_client = None
+
+
+# --- Simple chat endpoint that proxies to Google Generative AI (Gemini) ---
+@app.route('/api/chat', methods=['POST'])
+def api_chat():
+    data = request.get_json(silent=True) or {}
+    prompt = data.get('prompt') or data.get('message') or ''
+    if not prompt:
+        return jsonify({'error': 'empty_prompt'}), 400
+
+    gemini_key = os.getenv('GEMINI_API_KEY')
+    if not gemini_key:
+        return jsonify({'error': 'missing_gemini_key', 'message': 'Set GEMINI_API_KEY in .env'}), 500
+
+    try:
+        # Try to configure the genai client if available
+        try:
+            genai.configure(api_key=gemini_key)
+        except Exception:
+            pass
+
+        reply_text = None
+        try:
+            # Preferred simple API if available
+            resp = genai.generate_text(model='chat-bison-001', prompt=prompt)
+            if isinstance(resp, str):
+                reply_text = resp
+            elif hasattr(resp, 'text'):
+                reply_text = resp.text
+            elif isinstance(resp, dict) and 'text' in resp:
+                reply_text = resp['text']
+            else:
+                reply_text = str(resp)
+        except Exception:
+            try:
+                model = genai.TextGenerationModel.from_pretrained('chat-bison-001')
+                out = model.generate(prompt)
+                if hasattr(out, 'text'):
+                    reply_text = out.text
+                elif isinstance(out, dict) and 'text' in out:
+                    reply_text = out['text']
+                else:
+                    reply_text = str(out)
+            except Exception as e:
+                return jsonify({'error': 'genai_error', 'details': str(e)}), 502
+
+        return jsonify({'reply': reply_text})
+    except Exception as e:
+        return jsonify({'error': 'server_error', 'details': str(e)}), 500
 
 
 # ----------------- JWT CONFIG -----------------
@@ -273,7 +334,7 @@ def update_me():
     users_col.update_one({"_id": user["_id"]}, {"$set": updates})
     updated_user = users_col.find_one({"_id": user["_id"]})
 
-    # dac�� s-a schimbat email-ul sau parola, gener��m un nou token
+    # dacă s-a schimbat email-ul sau parola, generăm un nou token
     new_token = create_jwt_token(updated_user)
     role = get_user_role(updated_user)
 
@@ -368,8 +429,8 @@ def get_organizer_me():
 @jwt_required
 def update_organizer_me():
     """
-    Actualizeaz�� profilul de organizator al utilizatorului curent.
-    Body JSON acceptat (toate cA�mpurile opE>ionale):
+    Actualizează profilul de organizator al utilizatorului curent.
+    Body JSON acceptat (toate câmpurile opționale):
       - orgName: string
       - phone: string
       - website: string
@@ -410,7 +471,7 @@ def update_organizer_me():
         {"$set": {"organizerProfile": profile}},
     )
 
-    # refacem user-ul pentru r��spuns consecvent
+    # refacem user-ul pentru răspuns consecvent
     updated = users_col.find_one({"_id": user["_id"]})
     profile_out = dict(updated.get("organizerProfile") or {})
     created_at = profile_out.get("createdAt")
