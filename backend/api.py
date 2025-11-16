@@ -2,6 +2,7 @@ import os
 from datetime import datetime, timedelta
 
 import jwt
+from google import genai
 from flask import Flask, request, jsonify, g
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
@@ -31,8 +32,59 @@ db = client[MONGO_DB_NAME]
 users_col = db["users"]
 events_col = db["events"]
 tickets_col = db["tickets"]
+# ----------------- GEMINI CONFIG -----------------
+try:
+    # The client automatically uses the GEMINI_API_KEY environment variable 
+    # which was loaded from your local .env file.
+    gemini_client = genai.Client()
+    print("✅ Gemini Client initialized successfully.")
+except Exception as e:
+    print(f"⚠️ Error initializing Gemini Client: {e}")
+    # Set to None if initialization fails to prevent crashes later
+    gemini_client = None
 
+from datetime import datetime # Asigură-te că ai acest import sus în fișier!
 
+# ... restul importurilor și inițializarea clientului ...
+
+# --- Simple chat endpoint that proxies to Google Generative AI (Gemini) ---
+@app.route('/api/chat', methods=['POST'])
+def api_chat():
+    data = request.get_json(silent=True) or {}
+    user_prompt = data.get('prompt') or data.get('message') or ''
+    
+    if not user_prompt:
+        return jsonify({'error': 'empty_prompt'}), 400
+
+    if not gemini_client:
+        return jsonify({'error': 'service_unavailable', 'message': 'Gemini Client nu a putut fi inițializat.'}), 503
+
+    # 1. Obține data și ora curentă a sistemului
+    current_time_str = datetime.now().strftime("%A, %d %B %Y, %H:%M") # Ex: Monday, 16 November 2025, 12:18
+    
+    # 2. Creează un prompt de sistem care include contextul de timp
+    system_context = f"Ești un asistent util și prietenos. Data și ora curentă este: {current_time_str}. Răspunde la întrebarea utilizatorului."
+    
+    # 3. Combină contextul cu întrebarea utilizatorului
+    full_prompt = f"{system_context}\n\nUtilizator: {user_prompt}"
+
+    model_name = 'gemini-2.5-flash' 
+    
+    try:
+        response = gemini_client.models.generate_content(
+            model=model_name,
+            contents=full_prompt, # Folosește promptul complet
+        )
+
+        reply_text = response.text
+
+        return jsonify({'reply': reply_text}), 200
+        
+    except Exception as e:
+        print(f"Gemini API Error: {e}")
+        return jsonify({'error': 'gemini_api_call_failed', 'details': str(e)}), 502
+    
+    
 # ----------------- JWT CONFIG -----------------
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me")
@@ -235,6 +287,67 @@ def get_me():
     )
 
 
+@app.patch("/api/me")
+@jwt_required
+def update_me():
+    """
+    Actualizează datele de bază ale utilizatorului curent (email, parolă).
+    Body JSON acceptat (toate câmpurile opE>ionale):
+      - email: string
+      - password: string (noua parolă)
+    """
+    user = g.current_user
+    data = request.get_json() or {}
+
+    updates = {}
+    email = data.get("email")
+    password = data.get("password")
+
+    if email is not None:
+        new_email = (email or "").strip().lower()
+        if not new_email:
+            return jsonify({"error": "Email-ul nu poate fi gol"}), 400
+
+        if new_email != user.get("email"):
+            if users_col.find_one({"email": new_email}):
+                return jsonify({"error": "Email deja folosit"}), 400
+        updates["email"] = new_email
+
+    if password is not None:
+        if not password:
+            return jsonify({"error": "Parola nu poate fi goală"}), 400
+        password_hash = bcrypt.generate_password_hash(password).decode("utf-8")
+        updates["passwordHash"] = password_hash
+
+    if not updates:
+        return jsonify({"error": "Nimic de actualizat"}), 400
+
+    users_col.update_one({"_id": user["_id"]}, {"$set": updates})
+    updated_user = users_col.find_one({"_id": user["_id"]})
+
+    # dacă s-a schimbat email-ul sau parola, generăm un nou token
+    new_token = create_jwt_token(updated_user)
+    role = get_user_role(updated_user)
+
+    return (
+        jsonify(
+            {
+                "message": "Profil actualizat cu succes",
+                "token": new_token,
+                "user": {
+                    "id": str(updated_user["_id"]),
+                    "email": updated_user.get("email"),
+                    "role": role,
+                    "createdAt": updated_user.get("createdAt").isoformat()
+                    if isinstance(updated_user.get("createdAt"), datetime)
+                    else None,
+                },
+            }
+        ),
+        200,
+    )
+
+
 @app.post("/api/organizers/register")
 def register_organizer():
     data = request.get_json() or {}
@@ -295,6 +408,76 @@ def get_organizer_me():
             {
                 "id": str(user["_id"]),
                 "email": user.get("email"),
+                "role": "organizer",
+                "organizerProfile": profile_out,
+            }
+        ),
+        200,
+    )
+
+
+@app.patch("/api/organizers/me")
+@jwt_required
+def update_organizer_me():
+    """
+    Actualizează profilul de organizator al utilizatorului curent.
+    Body JSON acceptat (toate câmpurile opționale):
+      - orgName: string
+      - phone: string
+      - website: string
+      - description: string
+    """
+    user = g.current_user
+    if get_user_role(user) != "organizer":
+        return jsonify({"error": "Doar organizatorii au acces la acest endpoint"}), 403
+
+    data = request.get_json() or {}
+
+    org_name = data.get("orgName")
+    phone = data.get("phone")
+    website = data.get("website")
+    description = data.get("description")
+
+    profile = dict(user.get("organizerProfile") or {})
+
+    if org_name is not None:
+        name_clean = (org_name or "").strip()
+        if not name_clean:
+            return jsonify({"error": "Numele organizatorului nu poate fi gol"}), 400
+        profile["name"] = name_clean
+
+    if phone is not None:
+        profile["phone"] = (phone or "").strip() or None
+
+    if website is not None:
+        profile["website"] = (website or "").strip() or None
+
+    if description is not None:
+        profile["description"] = (description or "").strip() or None
+
+    profile["updatedAt"] = datetime.utcnow()
+
+    users_col.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"organizerProfile": profile}},
+    )
+
+    # refacem user-ul pentru răspuns consecvent
+    updated = users_col.find_one({"_id": user["_id"]})
+    profile_out = dict(updated.get("organizerProfile") or {})
+    created_at = profile_out.get("createdAt")
+    if isinstance(created_at, datetime):
+        profile_out["createdAt"] = created_at.isoformat()
+    updated_at = profile_out.get("updatedAt")
+    if isinstance(updated_at, datetime):
+        profile_out["updatedAt"] = updated_at.isoformat()
+
+    return (
+        jsonify(
+            {
+                "message": "Profil organizator actualizat cu succes",
+                "id": str(updated["_id"]),
+                "email": updated.get("email"),
                 "role": "organizer",
                 "organizerProfile": profile_out,
             }
@@ -583,4 +766,3 @@ def get_my_tickets():
 
 if __name__ == "__main__":
     app.run(debug=True)
-

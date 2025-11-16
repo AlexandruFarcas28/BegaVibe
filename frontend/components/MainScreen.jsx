@@ -106,7 +106,7 @@ const CATEGORIES = [
   'Sport',
 ];
 
-function MainScreen({ theme, onToggleTheme }) {
+function MainScreen({ theme, onToggleTheme, authToken, currentUser }) {
   const [events, setEvents] = useState([]);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('Toate');
@@ -124,11 +124,62 @@ function MainScreen({ theme, onToggleTheme }) {
   const [idNumber, setIdNumber] = useState('');
   const [ageError, setAgeError] = useState('');
 
+  // Chat widget state
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([
+    { from: 'bot', text: 'Salut! Pot să te ajut cu găsirea unui eveniment?' },
+  ]);
+  const [chatInput, setChatInput] = useState('');
+
   const infoCardRef = useRef(null);
   const mapPanelRef = useRef(null);
 
+  // Incarcam evenimentele din backend; daca esueaza, folosim MOCK_EVENTS
   useEffect(() => {
-    setEvents(MOCK_EVENTS);
+    let isCancelled = false;
+
+    async function loadEvents() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/events`);
+        const data = await res.json().catch(() => []);
+
+        if (!res.ok) {
+          throw new Error(data.error || data.message || `Eroare ${res.status}`);
+        }
+
+        if (!Array.isArray(data) || data.length === 0) {
+          if (!isCancelled) {
+            setEvents(MOCK_EVENTS);
+          }
+          return;
+        }
+
+        if (!isCancelled) {
+          const mapped = data.map((ev) => ({
+            id: ev.id,
+            title: ev.title || '',
+            date: ev.date || '',
+            locationName: ev.locationName || '',
+            imageUrl: ev.imageUrl || '',
+            category: ev.category || 'Eveniment',
+            price: ev.price || 'Gratuit',
+            minAge: ev.minAge ?? null,
+          }));
+          setEvents(mapped);
+        }
+      } catch (err) {
+        console.warn('Nu s-au putut incarca evenimentele reale, folosim date mock.', err);
+        if (!isCancelled) {
+          setEvents(MOCK_EVENTS);
+        }
+      }
+    }
+
+    loadEvents();
+
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -291,6 +342,13 @@ function MainScreen({ theme, onToggleTheme }) {
 
 
   const handleOpenTickets = (event) => {
+    if (!authToken) {
+      alert(
+        'Pentru a rezerva bilete reale trebuie s�� fii autentificat cu un cont (nu ca invitat).'
+      );
+      return;
+    }
+
     setSelectedEvent(event);
     setTicketCount(1);
 
@@ -335,9 +393,48 @@ function MainScreen({ theme, onToggleTheme }) {
     setTicketModalOpen(true);
   };
 
-  const handleConfirmTickets = () => {
-    setTicketModalOpen(false);
-    alert('Biletele au fost rezervate! Vei primi detaliile pe email.');
+  const handleConfirmTickets = async () => {
+    if (!selectedEvent) {
+      setTicketModalOpen(false);
+      return;
+    }
+
+    if (!authToken) {
+      setTicketModalOpen(false);
+      alert('Trebuie s�� fii autentificat pentru a rezerva bilete.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/tickets`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          eventId: selectedEvent.id,
+          count: ticketCount,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const message =
+          data.error ||
+          data.message ||
+          `Rezervarea a eE9uat (cod ${res.status}).`;
+        alert(message);
+      } else {
+        alert('Biletele au fost rezervate cu succes! Verific��-TEi email-ul pentru detalii.');
+      }
+    } catch (error) {
+      console.error(error);
+      alert('Eroare la conectarea cu serverul de bilete. Asigur��-te c�� backend-ul ruleaz��.');
+    } finally {
+      setTicketModalOpen(false);
+    }
   };
 
   const computeTotalPrice = () => {
@@ -346,6 +443,49 @@ function MainScreen({ theme, onToggleTheme }) {
     const numeric = parseInt(selectedEvent.price);
     if (isNaN(numeric)) return 0;
     return numeric * ticketCount;
+  };
+
+  const handleSendChat = async () => {
+    const text = (chatInput || '').trim();
+    if (!text) return;
+
+    // append user message and clear input
+    setChatMessages((m) => [...m, { from: 'user', text }]);
+    setChatInput('');
+
+    // show a temporary typing indicator from the bot
+    const typingId = Date.now();
+    setChatMessages((m) => [...m, { from: 'bot', text: '...', _id: typingId }]);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: text }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // remove typing and fallback to local reply
+        setChatMessages((m) => m.filter((msg) => msg._id !== typingId));
+        const fallback = data.error || 'Nu am putut obține un răspuns (server).';
+        setChatMessages((m) => [...m, { from: 'bot', text: `Eroare: ${fallback}` }]);
+        return;
+      }
+
+      const reply = data.reply || data.result || data.text || '';
+      // remove typing placeholder and append real reply
+      setChatMessages((m) => m.filter((msg) => msg._id !== typingId));
+      if (reply) {
+        setChatMessages((m) => [...m, { from: 'bot', text: reply }]);
+      } else {
+        setChatMessages((m) => [...m, { from: 'bot', text: 'Nu am un răspuns la momentul acesta.' }]);
+      }
+    } catch (err) {
+      // network or other error — remove typing and fallback
+      setChatMessages((m) => m.filter((msg) => msg._id !== typingId));
+      setChatMessages((m) => [...m, { from: 'bot', text: `Eroare de rețea: ${String(err)}` }]);
+    }
   };
 
   // 1) eveniment selectat, 2) locația userului, 3) fallback Timișoara
@@ -1556,7 +1696,101 @@ function MainScreen({ theme, onToggleTheme }) {
             height: 320px;
           }
         }
+
+        /* CHAT WIDGET */
+        .chat-button {
+          position: fixed;
+          right: 20px;
+          bottom: 20px;
+          width: 54px;
+          height: 54px;
+          border-radius: 999px;
+          background: linear-gradient(135deg,#6366f1,#06b6d4);
+          color: #fff;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 10px 30px rgba(2,6,23,0.5);
+          border: none;
+          cursor: pointer;
+          z-index: 1200;
+          font-size: 20px;
+        }
+
+        .chat-window {
+          position: fixed;
+          right: 20px;
+          bottom: 86px;
+          width: 320px;
+          max-width: calc(100% - 40px);
+          height: 420px;
+          background: rgba(8,10,20,0.98);
+          border-radius: 12px;
+          border: 1px solid rgba(148,163,184,0.12);
+          box-shadow: 0 20px 50px rgba(2,6,23,0.6);
+          display: none;
+          flex-direction: column;
+          overflow: hidden;
+          z-index: 1199;
+        }
+
+        .chat-window.open {
+          display: flex;
+        }
+
+        .chat-header {
+          padding: 10px 12px;
+          background: linear-gradient(90deg, rgba(99,102,241,0.12), rgba(6,182,212,0.08));
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:8px;
+          font-weight:700;
+        }
+
+        .chat-close { background: transparent; border: none; color: #cbd5e1; font-size: 18px; cursor: pointer }
+
+        .chat-messages { padding: 10px; flex:1; overflow:auto; display:flex; flex-direction:column; gap:8px }
+        .chat-msg { max-width: 86%; padding: 8px 10px; border-radius: 10px; font-size: 13px }
+        .chat-msg.bot { align-self:flex-start; background: rgba(148,163,184,0.08); color:#e6eef8 }
+        .chat-msg.user { align-self:flex-end; background: linear-gradient(135deg,#6366f1,#a855f7); color:#fff }
+
+        .chat-input-row { display:flex; gap:8px; padding:10px; border-top:1px solid rgba(148,163,184,0.04) }
+        .chat-input-row input { flex:1; padding:8px 10px; border-radius:8px; border:1px solid rgba(148,163,184,0.08); background:transparent; color:inherit }
+        .chat-input-row button { padding:8px 10px; border-radius:8px; background:linear-gradient(135deg,#06b6d4,#6366f1); color:#fff; border:none; cursor:pointer }
       `}</style>
+
+      {/* CHAT WIDGET MARKUP */}
+      <div className={`chat-window ${chatOpen ? 'open' : ''}`} role="dialog" aria-label="Chat bot">
+        <div className="chat-header">
+          <strong>BegaVibe Assistant</strong>
+          <button className="chat-close" onClick={() => setChatOpen(false)}>×</button>
+        </div>
+        <div className="chat-messages">
+          {chatMessages.map((m, i) => (
+            <div key={i} className={`chat-msg ${m.from}`}>
+              <span>{m.text}</span>
+            </div>
+          ))}
+        </div>
+        <div className="chat-input-row">
+          <input
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSendChat(); }}
+            placeholder="Scrie un mesaj..."
+          />
+          <button onClick={handleSendChat}>Trimite</button>
+        </div>
+      </div>
+
+      <button
+        className="chat-button"
+        aria-label="Open chat"
+        onClick={() => setChatOpen((s) => !s)}
+      >
+        💬
+      </button>
 
     </div>
   );

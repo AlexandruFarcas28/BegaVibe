@@ -1,6 +1,8 @@
 // src/pages/OrganizerDashboard.jsx
 import React, { useState, useEffect } from 'react';
 
+const API_BASE_URL = 'http://127.0.0.1:5000';
+
 const MOCK_ORG_EVENTS = [
   {
     id: '1',
@@ -106,8 +108,20 @@ const isNumericOnly = (value) => /^[0-9]+$/.test(value.trim());
 const isValidPrice = (value) => /^([0-9]+)(\.[0-9]{1,2})?$/.test(value.trim());
 const isValidCui = (value) => /^[0-9]{6,10}$/.test(value.trim());
 
-function OrganizerDashboard({ theme, onToggleTheme, onLogout }) {
-  const [events, setEvents] = useState(MOCK_ORG_EVENTS);
+const mapApiEventToUi = (apiEv) => ({
+  id: apiEv.id,
+  title: apiEv.title || '',
+  date: apiEv.date || '',
+  status: apiEv.status === 'published' ? 'Publicat' : 'AZn draft',
+  location: apiEv.locationName || '',
+  organizerName: '',
+  cui: '',
+  price: apiEv.price || '',
+  mapLink: '',
+});
+
+function OrganizerDashboard({ theme, onToggleTheme, onLogout, authToken, currentUser, email }) {
+  const [events, setEvents] = useState([]);
   const [newEvent, setNewEvent] = useState({
     title: '',
     date: '',
