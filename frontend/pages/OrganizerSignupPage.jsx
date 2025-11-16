@@ -66,14 +66,50 @@ function OrganizerDashboard({ theme, onToggleTheme, onLogout, authToken, current
     price: '',
     mapLink: '',
   });
-  const [statusFilter, setStatusFilter] = useState('ALL');
+
+    const [statusFilter, setStatusFilter] = useState('ALL');
   const [editingEvent, setEditingEvent] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    // aici poți încărca evenimentele din backend
-  }, []);
+    // incarcam evenimentele organizatorului din backend; daca esueaza, folosim mock
+    if (!authToken) {
+      setEvents(MOCK_ORG_EVENTS);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadEvents() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/organizers/me/events`, {
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+        });
+        const data = await res.json().catch(() => []);
+        if (!res.ok) {
+          throw new Error(data.error || data.message || `Eroare ${res.status}`);
+        }
+        if (!cancelled && Array.isArray(data)) {
+          setEvents(data.map(mapApiEventToUi));
+        }
+      } catch (err) {
+        console.warn('Nu s-au putut incarca evenimentele organizatorului, folosim date mock.', err);
+        if (!cancelled) {
+          setEvents(MOCK_ORG_EVENTS);
+        }
+      }
+    }
+
+    loadEvents();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken]);
+
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -98,7 +134,7 @@ function OrganizerDashboard({ theme, onToggleTheme, onLogout, authToken, current
     return true;
   };
 
-  const handleCreateEvent = (e) => {
+    const handleCreateEvent = async (e) => {
     e.preventDefault();
 
     const {
@@ -111,70 +147,177 @@ function OrganizerDashboard({ theme, onToggleTheme, onLogout, authToken, current
       mapLink,
     } = newEvent;
 
+    const trimmedTitle = (title || '').trim();
+    const trimmedDate = (date || '').trim();
+    const trimmedLocation = (location || '').trim();
+    const trimmedOrgName = (organizerName || '').trim();
+    const trimmedCui = (cui || '').trim();
+    const trimmedPrice = (price || '').trim();
+    const trimmedMapLink = (mapLink || '').trim();
+
     if (
-      !title.trim() ||
-      !date.trim() ||
-      !location.trim() ||
-      !organizerName.trim() ||
-      !cui.trim() ||
-      !price.trim()
+      !trimmedTitle ||
+      !trimmedDate ||
+      !trimmedLocation ||
+      !trimmedOrgName ||
+      !trimmedCui ||
+      !trimmedPrice
     ) {
-      alert('Te rog completează toate câmpurile obligatorii (inclusiv nume organizator, CUI și preț).');
+      alert('Te rog completeaza toate campurile obligatorii (inclusiv nume organizator, CUI si pret).');
       return;
     }
 
-    if (!validateTextFields({ title, location, organizerName })) return;
+    if (!validateTextFields({ title: trimmedTitle, location: trimmedLocation, organizerName: trimmedOrgName })) return;
 
-    if (!isValidCui(cui)) {
-      alert('CUI-ul trebuie să conțină doar cifre și să aibă între 6 și 10 caractere.');
+    if (!isValidCui(trimmedCui)) {
+      alert('CUI-ul trebuie sa contina doar cifre si sa aiba intre 6 si 10 caractere.');
       return;
     }
 
-    if (!isValidPrice(price)) {
-      alert('Prețul trebuie să fie un număr valid (ex: 50 sau 49.99).');
+    if (!isValidPrice(trimmedPrice)) {
+      alert('Pretul trebuie sa fie un numar valid (ex: 50 sau 49.99).');
       return;
     }
 
-    const created = {
-      id: Date.now().toString(),
-      title: title.trim(),
-      date: date.trim(),
-      status: 'În draft',
-      location: location.trim(),
-      organizerName: organizerName.trim(),
-      cui: cui.trim(),
-      price: price.trim(),
-      mapLink: mapLink.trim(),
-    };
+    if (!authToken) {
+      alert('Trebuie sa fii autentificat ca organizator pentru a crea evenimente reale.');
+      return;
+    }
 
-    setEvents((prev) => [created, ...prev]);
-    setNewEvent({
-      title: '',
-      date: '',
-      location: '',
-      organizerName: '',
-      cui: '',
-      price: '',
-      mapLink: '',
-    });
-    alert('Eveniment creat ca draft pentru organizator.');
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/organizers/me/events`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          title: trimmedTitle,
+          date: trimmedDate,
+          locationName: trimmedLocation,
+          price: trimmedPrice,
+          status: 'draft',
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const message =
+          data.error ||
+          data.message ||
+          `Crearea evenimentului a esuat (cod ${res.status}).`;
+        alert(message);
+        return;
+      }
+
+      const apiEv = data;
+      const mapped = mapApiEventToUi(apiEv);
+      const merged = {
+        ...mapped,
+        organizerName: trimmedOrgName,
+        cui: trimmedCui,
+        mapLink: trimmedMapLink,
+      };
+
+      setEvents((prev) => [merged, ...prev]);
+      setNewEvent({
+        title: '',
+        date: '',
+        location: '',
+        organizerName: '',
+        cui: '',
+        price: '',
+        mapLink: '',
+      });
+      alert('Eveniment creat ca draft pentru organizator (salvat in baza de date).');
+    } catch (error) {
+      console.error(error);
+      alert('Eroare la conectarea cu serverul pentru crearea evenimentului.');
+    }
   };
 
-  const handleDeleteEvent = (id) => {
-    setEvents((prev) => prev.filter((e) => e.id !== id));
-    setShowDeleteConfirm(null);
-    alert('Eveniment șters cu succes!');
+    const handleDeleteEvent = async (id) => {
+    if (!authToken) {
+      setEvents((prev) => prev.filter((e) => e.id !== id));
+      setShowDeleteConfirm(null);
+      alert('Eveniment sters doar local (fara backend).');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/events/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message =
+          data.error ||
+          data.message ||
+          `Stergerea evenimentului a esuat (cod ${res.status}).`;
+        alert(message);
+        return;
+      }
+      setEvents((prev) => prev.filter((e) => e.id !== id));
+      setShowDeleteConfirm(null);
+      alert('Eveniment sters cu succes (salvat in baza de date).');
+    } catch (err) {
+      console.error(err);
+      alert('Eroare la conectarea cu serverul pentru stergerea evenimentului.');
+    }
   };
 
-  const handleToggleStatus = (id) => {
-    setEvents((prev) =>
-      prev.map((ev) => {
-        if (ev.id !== id) return ev;
-        const newStatus = ev.status === 'Publicat' ? 'În draft' : 'Publicat';
-        return { ...ev, status: newStatus };
-      })
-    );
+
+    const handleToggleStatus = async (id) => {
+    const ev = events.find((e) => e.id === id);
+    if (!ev) return;
+
+    const newStatusApi = ev.status === 'Publicat' ? 'draft' : 'published';
+
+    if (!authToken) {
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id === id
+            ? { ...e, status: newStatusApi === 'published' ? 'Publicat' : 'AZn draft' }
+            : e
+        )
+      );
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/events/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ status: newStatusApi }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message =
+          data.error ||
+          data.message ||
+          `Actualizarea statusului a esuat (cod ${res.status}).`;
+        alert(message);
+        return;
+      }
+      const updated = mapApiEventToUi(data);
+      setEvents((prev) =>
+        prev.map((e) =>
+          e.id === updated.id ? { ...e, status: updated.status } : e
+        )
+      );
+    } catch (err) {
+      console.error(err);
+      alert('Eroare la conectarea cu serverul pentru actualizarea statusului.');
+    }
   };
+
 
   const handleEditEvent = (event) => {
     setEditingEvent({
@@ -186,48 +329,90 @@ function OrganizerDashboard({ theme, onToggleTheme, onLogout, authToken, current
     });
   };
 
-  const handleSaveEdit = () => {
-    if (!editingEvent) return;
+  const handleSaveEdit = async () => {
+  if (!editingEvent) return;
 
-    const {
-      title,
-      date,
-      location,
-      organizerName,
-      cui,
-      price,
-    } = editingEvent;
+  const {
+    title,
+    date,
+    location,
+    organizerName,
+    cui,
+    price,
+  } = editingEvent;
 
-    if (
-      !title.trim() ||
-      !date.trim() ||
-      !location.trim() ||
-      !organizerName.trim() ||
-      !cui.trim() ||
-      !price.trim()
-    ) {
-      alert('Te rog completează toate câmpurile obligatorii.');
-      return;
-    }
+  if (
+    !title.trim() ||
+    !date.trim() ||
+    !location.trim() ||
+    !organizerName.trim() ||
+    !cui.trim() ||
+    !price.trim()
+  ) {
+    alert('Te rog completeaza toate campurile obligatorii.');
+    return;
+  }
 
-    if (!validateTextFields({ title, location, organizerName })) return;
+  if (!validateTextFields({ title, location, organizerName })) return;
 
-    if (!isValidCui(cui)) {
-      alert('CUI-ul trebuie să conțină doar cifre și să aibă între 6 și 10 caractere.');
-      return;
-    }
+  if (!isValidCui(cui)) {
+    alert('CUI-ul trebuie sa contina doar cifre si sa aiba intre 6 si 10 caractere.');
+    return;
+  }
 
-    if (!isValidPrice(price)) {
-      alert('Prețul trebuie să fie un număr valid (ex: 50 sau 49.99).');
-      return;
-    }
+  if (!isValidPrice(price)) {
+    alert('Pretul trebuie sa fie un numar valid (ex: 50 sau 49.99).');
+    return;
+  }
 
+  if (!authToken) {
     setEvents((prev) =>
       prev.map((e) => (e.id === editingEvent.id ? editingEvent : e))
     );
     setEditingEvent(null);
-    alert('Eveniment actualizat cu succes!');
-  };
+    alert('Eveniment actualizat doar local (fara backend).');
+    return;
+  }
+
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/api/events/${encodeURIComponent(editingEvent.id)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          title: title.trim(),
+          date: date.trim(),
+          locationName: location.trim(),
+          price: price.trim(),
+        }),
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const message =
+        data.error ||
+        data.message ||
+        `Actualizarea evenimentului a esuat (cod ${res.status}).`;
+      alert(message);
+      return;
+    }
+
+    const updated = mapApiEventToUi(data);
+    setEvents((prev) =>
+      prev.map((e) => (e.id === updated.id ? { ...e, ...updated } : e))
+    );
+    setEditingEvent(null);
+    alert('Eveniment actualizat cu succes (salvat in baza de date).');
+  } catch (err) {
+    console.error(err);
+    alert('Eroare la conectarea cu serverul pentru actualizarea evenimentului.');
+  }
+};
+
 
   const handleCancelEdit = () => {
     setEditingEvent(null);
@@ -1486,3 +1671,5 @@ function OrganizerDashboard({ theme, onToggleTheme, onLogout, authToken, current
 }
 
 export default OrganizerDashboard;
+
+
